@@ -1,6 +1,8 @@
 from struct import unpack
 import sys, os, shutil
 
+from jraph import batch
+
 #standard thing that makes sure all dependencies resolve.
 def copy_file_to_directories(filename, target_dirs):
     source_path = os.path.abspath(filename)
@@ -32,8 +34,8 @@ hp = {
     "dropoutRate": 0.1,
     "max_atoms": 40,
     "batch_size": 64,
-    "maxDims": 44,#The input vector is a 3D lattice of size maxDims x maxDims x maxDims of atoms, represented as vectors of size maxRep.
-    "conversionFactor": 1.35,#It is assumed that all atoms have the same size. This is the relative radius of each atom in lattice units.
+    "maxDims": 48,#The input vector is a 3D lattice of size maxDims x maxDims x maxDims of atoms, represented as vectors of size maxRep.
+    "conversionFactor": 1.45,#It is assumed that all atoms have the same size. This is the relative radius of each atom in lattice units.
     "num_proc": 12,
 }
 
@@ -42,7 +44,7 @@ hp["dims"] = ( [hp["maxDims"], hp["maxDims"], hp["maxDims"]] ,-1)#The last entry
 
 
 
-def net_fn(batch_input):#Using the includes file loss functions, this is necessary for it.
+def net_fn(batch_input, is_training=False, dropout_rate=0):#Using the includes file loss functions, this is necessary for it.
   
   batch_conv, batch_global = batch_input
 
@@ -102,8 +104,15 @@ def testConvexity(index, axes, invAxes):
 
 output_dim = 0#initialize before calling the network
 
-def unpack_data(index, data_item, randomRotate=False):
-    denseEncode = np.zeros((hp["maxDims"], hp["maxDims"], hp["maxDims"]))
+def unpack_data(index, data_item, ccnn_depth, randomRotate=False):
+    #absolutely need this to not rearrange the atoms (it doesn't)
+    inputs = np.array([poscar_atomic.info(data_item) for poscar_atomic in poscar_atomics])
+    print(inputs.shape)
+
+    #prep convnet
+    denseEncode = np.zeros((hp["maxDims"], hp["maxDims"], hp["maxDims"],ccnn_depth + 1))
+    print(denseEncode.shape)
+
     axes = getGlobalDataVector(data_item)
     if randomRotate:#This is currently unsafe, the rotation could orient the atomic structure outside the cube
         rot = R.random().as_matrix()#This is a random rotation matrix
@@ -128,7 +137,7 @@ def unpack_data(index, data_item, randomRotate=False):
             #This tiles out everything, then I dither the pixels
             points, vol = givenPointDetermineCubeAndOverlap(atomToArray(unpackLine(data_item[8+i]) + np.array(j), axes))
             for jj in range(len(points)):#Use the variable encoding here.
-                denseEncode[points[jj][0], points[jj][1], points[jj][2], :] = [vol[jj], atoms[atomType]]
+                denseEncode[points[jj][0], points[jj][1], points[jj][2], :] = [vol[jj], *flatten(inputs[i])]
     
     invAxes = np.linalg.inv(axes)
     mask = np.fromfunction(lambda i, j, k, l: testConvexity(np.array((i,j,k)), axes, invAxes), 
@@ -208,6 +217,9 @@ if not exists("processed.pickle"):
                         encoding.add((points[jj][0], points[jj][1], points[jj][2]))
                     else:
                         print("Enlarge the encoding, this data is corrupted!")
+                        print("The offending poscar is", poscar)
+                        print(encoding)
+                        print(points[jj])
 
                         exit()#hard failure
 
@@ -254,14 +266,20 @@ with open("processed.pickle", "rb") as f:
     # Split the data into training and validation sets
     ##X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
     #The following data is still lightweight
-    X_train, y_train, X_val, y_val = partition_dataset(0.1, inputs, inputs_global, labels)
+    X_train, globals_train, y_train, X_val, globals_val, y_val = partition_dataset(0.1, inputs, inputs_global, labels)
 
-    #Now, attempt to load the model NNN.params if it exists, otherwise init with haiku
+    #Now, attempt to load the model CCNN.params if it exists, otherwise init with haiku
+
+    print(X_train[0])
+    print(poscar_atomics)
+    print([poscar_atomic.info(X_train[0]) for poscar_atomic in poscar_atomics])
+    ccnn_depth = sum([len(poscar_atomic.info(X_train[0])[0]) for poscar_atomic in poscar_atomics])
+    print("The ccnn depth is: ", ccnn_depth)
     # Initialize the network
     net = hk.transform(net_fn)
     rng = jax.random.PRNGKey(0x09F911029D74E35BD84156C5635688C0 % 2**32)
     init_rng, train_rng = jax.random.split(rng)
-    params = net.init(init_rng, X_train[0], is_training=True)
+    params = net.init(init_rng, (unpack_data(0, X_train[0], ccnn_depth)[1], globals_train[0]), is_training=True)
     if exists("CCNN.params"):
         with open("CCNN.params", "rb") as f:
             params = pickle.load(f)
@@ -296,35 +314,48 @@ with open("processed.pickle", "rb") as f:
         num_proc = 12
         pool = Pool(processes=hp["num_proc"])
 
-        for _ in epoch:
+        for _ in range(num_epochs):
             for index, data_item in enumerate(inputs):
-                pool.apply_async( unpack_data, (index, data_item) , callback=results_queue.put )
+                pool.apply_async( unpack_data, args=(index, data_item,ccnn_depth) , callback=results_queue.put )
+        
+        pool.apply_async(lambda a: None, args=(None,), callback=results_queue.put)
 
+        batch = []
 
+        while True:
+            result = results_queue.get()
 
+            if result is None:
+                #There will be less than a batch of data left, so just flush it.
+                break
 
-        for epoch in range(num_epochs):
-            for i in range(num_batches):
-                batch_rng = jax.random.fold_in(train_rng, i)
-                batch_start, batch_end = i * hp["batch_size"], (i + 1) * hp["batch_size"]
-                X_batch = X_train[batch_start:batch_end]
-                y_batch = y_train[batch_start:batch_end]
-                #print all the types for debug purposes:
+            batch.append(result)
 
-                (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, X_batch, y_batch)
+            if len(batch) == hp["batch_size"]:
+                conv_data = np.array( [i[1] for i in batch] )
+                g_data = np.array( [inputs_global[i[0]] for i in conv_data] )
+                label_data = np.array( [labels[i[0]] for i in conv_data] )
+
+                (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, (conv_data, g_data), label_data)
                 updates, opt_state = optimizer.update(grad, opt_state)
                 params = optax.apply_updates(params, updates)
-            
 
-            # Save the training and validation loss
-            train_accuracy = compute_accuracy_fn(params, batch_rng, X_train, y_train)
-            val_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
-            print(f"Epoch {epoch}, Training accuracy: {train_accuracy}, Validation accuracy: {val_accuracy}")
+                print(loss, accs)
+                batch.clear()
+        
+        pool.close()
+        pool.join()
+
+
+        # Save the training and validation loss
+        #train_accuracy = compute_accuracy_fn(params, batch_rng, X_train, y_train)
+        #val_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
+        #print(f"Epoch {epoch}, Training accuracy: {train_accuracy}, Validation accuracy: {val_accuracy}")
     except KeyboardInterrupt:
-        with open("NNN.params", "wb") as f:
+        with open("CCNN.params", "wb") as f:
             pickle.dump(params, f)
         print("Keyboard interrupt, saving model")
     
-    with open("NNN.params", "wb") as f:
+    with open("CCNN.params", "wb") as f:
         pickle.dump(params, f)
     print("Done training")
