@@ -1,79 +1,37 @@
-from _common_data_preprocessing import *
-import pickle
+import sys, os, shutil
+
+#standard thing that makes sure all dependencies resolve.
+def copy_file_to_directories(filename, target_dirs):
+    source_path = os.path.abspath(filename)
+    print(f"Source path: {source_path}")
+    if not os.path.exists(source_path):
+        print(f"Source file {filename} does not exist.")
+        return
+    for dir in target_dirs:
+        dir = os.path.join(os.path.abspath("."), dir)
+        print(f"Target directory: {dir}")
+        os.makedirs(dir, exist_ok=True)
+        target_path = os.path.join(dir, os.path.basename(filename))
+        shutil.copy(source_path, target_path)
+        print(f"Copied {source_path} to {target_path}")
+
+# Define the relative paths of the target directories
+target_directories = ['.', 'input', 'output']
+copy_file_to_directories('../includes.py', target_directories)
 
 
-""" 
-globals then atoms then labels
-"""
+#Now the rest of the file.
+
+from includes import *
+load_submodules() #this is a function in includes.py that loads all the submodules.
 
 
-#This isn't writing the predictions yet. I'm going to dump those in a separate file for ease of thought
-def format(rFile, wFile, sym, topo):
-    global globals
-    global maxSize
-    global atomSize
-    with open(rFile, 'r', newline='') as file:
-        reader = csv.reader(file)
-        outPutls = []
-        for row in reader:
-            poscar = list(map(lambda a: a.strip(), row[0].split("\\n")))
-
-            #Not the most efficient encoding, but is fine
-            arr = [0]*((globals["dataSize"] + atomSize)*maxSize + globals["labelSize"])#9 init vals, maxSize spots for atoms, 5 final categories - 1 for the simple topo
-
-            glData = getGlobalData(poscar, row, sym)
-
-            atoms = poscar[5].split()
-            numbs = poscar[6].split()
-
-            total = 0
-            for i in range(len(numbs)):
-                total+=int(numbs[i])
-                numbs[i] = total
-            
-
-            curIndx = 0
-            atomType = 0
-            for i in range(total):
-                curIndx+=1
-                if curIndx > numbs[atomType]:
-                    atomType+=1
-
-                arr[i*(globals["dataSize"] + atomSize):(i+1)*(globals["dataSize"] + atomSize)] = serializeAtom(atoms[atomType], poscar, i) + glData
-            
-            #This should be dumping an array into the end of the array
-            arr[-globals["labelSize"]:] = convertTopoToIndex(row, topo)
-            outPutls.append(arr)
-        
-        with open(wFile, 'wb') as wFile:
-            pickle.dump(outPutls, wFile)
-
-cmd_line(format, "csnn")
-
-
-
-
-from typing import Iterator, Mapping, Tuple
-from _common_ml import *
-import csv
-from absl import app
-import haiku as hk
-import jax
-import jax.numpy as jnp
-import numpy as np
-import optax
-
-
-atomSize = 27
-
-# we have l | l l l so the sizes are the same
-def skipit(width, layers):
-  first = hk.Sequential([hk.Linear(width), jax.nn.relu])
-
-  rest = hk.Sequential([
-    *[a for _ in range(layers - 1) for a in (hk.Linear(width), jax.nn.leaky_relu)]
-  ])
-  return lambda a : first(a) + rest(a)
+# hyperparameters
+hp = {
+    "dropoutRate": 0.1,
+    "max_atoms": 40,
+    "batch_size": 64,
+}
 
 
 def MAB(X, Y, is_self_attention=False):
@@ -106,7 +64,7 @@ def decoder(Z):
   #Z = hk.nets.MLP([512, 256, 64], activation=jax.nn.leaky_relu)(Z)#check rep dim - prob not needed
   Z = PMA(Z)#SAB(PMA(Z))
   Z = hk.nets.MLP([512, 256, 64], activation=jax.nn.leaky_relu)(Z)
-  return hk.Linear(globals["labelSize"])(Z)#implicit global var to avoid passing static_args
+  return hk.Linear(output_dim)(Z)#implicit global var to avoid passing static_args
 
 @jax.vmap
 def set_transformer_single(X):
@@ -118,9 +76,18 @@ def set_transformer_single(X):
 
   return output
 
-def set_transformer(batch, output_size):
+def set_transformer(batch, is_training=False, dropout_rate=0):
   # Reshape input to (batch_size, n, d_x)
-  reshaped_batch = jnp.reshape(batch, (batch.shape[0], 60, globals["dataSize"] + atomSize))
+  batch_atoms = batch[0]
+  batch_global = batch[1]
+
+  #Now, batch_atoms is of the form (batch.shape[0], 60, -1) I want to take the batch_global of the form (batch.shape[0], -1), tile it out and attach it to each array
+
+  batch_g = jnp.tile(batch_global, (1, 60, 1))
+  reshaped_batch = jnp.concatenate((batch_atoms, batch_g), axis=2)
+
+
+
 
   # Apply set_transformer_single to each example in the batch using jax.vmap
   output = set_transformer_single(reshaped_batch)
@@ -131,100 +98,144 @@ def set_transformer(batch, output_size):
 def net_fn(batch: jnp.ndarray) -> jnp.ndarray:
   return set_transformer(batch, globals["labelSize"])
 
+output_dim = 0#initialize before calling the network
 
-#maybe a better way to shuffle data exists, but... ?
-#Also, could try vmapping
-def mixAtoms(listOfData):
-  return listOfData
+if not exists("processed.pickle"):
 
-def main(obj):
-  # Make the network and optimiser.
-  print("entered function")
-  net = hk.transform(net_fn, apply_rng=True)
-  opt = optax.adam(1e-3)
+    #the atomic embeddings are assumed to be both input and available for all
+    #poscar files. The global embeddings are assumed to not exist for all elements.
+    #The poscar_globals is just the cell size. The others should be obvious.
 
-  # Training loss (cross-entropy).
-  def loss(params: hk.Params, batch: np.ndarray, labels: np.ndarray) -> jnp.ndarray:
-    global globals
-    """Compute the loss of the network, including L2."""
-    logits = net.apply(params, rng, batch)
-    #The labels are prehotted
+    #Print the number of poscars total:
+    setOfAllPoscars = getSetOfPoscars()
+    print("There are", len(setOfAllPoscars), "poscars total.")
 
-    l2_loss = 0.5 * sum(jnp.sum(jnp.square(p)) for p in jax.tree_util.tree_leaves(params))
-    loss = jnp.mean(optax.softmax_cross_entropy(logits, labels))
+    ids = set.intersection(*flatten([i.valid_ids() for i in global_inputs] + [i.valid_ids() for i in global_outputs]))
 
-    return loss + 1e-4 * l2_loss
+    print("There are", len(ids), "poscars with all inputs and outputs.")
 
-  # Evaluation metric (classification accuracy).
-  @jax.jit
-  def accuracy(params: hk.Params, batch: np.ndarray, labels: np.ndarray) -> jnp.ndarray:
-    global globals
-    predictions = net.apply(params, rng, batch)
-    hot_pred = jax.lax.map(
-      lambda a: jax.lax.eq(jnp.arange(globals["labelSize"]), jnp.argmax(a)).astype(float),
-      predictions)
-    return jnp.mean(jnp.equal(hot_pred, labels).all(axis=1))
-
-  @jax.jit
-  def update(
-      params: hk.Params,
-      opt_state: optax.OptState,
-      batch: np.ndarray,
-      labels: np.ndarray,
-  ) -> Tuple[hk.Params, optax.OptState]:
-    """Learning rule (stochastic gradient descent)."""
-    grads = jax.grad(loss)(params, batch, labels)
-    updates, opt_state = opt.update(grads, opt_state)
-    new_params = optax.apply_updates(params, updates)
-    return new_params, opt_state
-
-  # We maintain avg_params, the exponential moving average of the "live" params.
-  # avg_params is used only for evaluation (cf. https://doi.org/10.1137/0330046)
-  @jax.jit
-  def ema_update(params, avg_params):
-    return optax.incremental_update(params, avg_params, step_size=0.001)
-
-  print("getting datasets")
-  # Make datasets.
-  iterData = list(np.array_split(np.array(obj), 100))
-
-  print("done splitting")
-
-  # Initialize network and optimiser; note we draw an input to get shapes.
-  rng = jax.random.PRNGKey(42)
-  params = avg_params = net.init(rng, iterData[0][:,:-globals["labelSize"]])
-  opt_state = opt.init(params)
+    #There are how many poscars missing:
+    ids = set.intersection(ids, setOfAllPoscars)
+    print("There are", len(ids), "poscars with all inputs and outputs and all poscars.")
 
 
-  print("training")
-  ii = 1
-  # Train/eval loop.
-  for step in range(100000):
-    ii+=1
-    if ii == len(iterData):
-      ii = 1
+
+
+    pi = []
+    pa = []
+    go = []
+    go_types = [i.classifier() for i in global_outputs]
+    go_nums = [len(i.info(1)) for i in global_outputs]
+
+    ii = 0
+    for i in ids:
+
+        poscar = preprocessPoscar(i)
+
+        #fixed dimensional
+        pi_ = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs]
+
+        #fixed dimensional
+        go_ = []
+        for func in range(len(global_outputs)):
+            go_.append(global_outputs[func].info(i))
+
+        atom_names = atom_names_in_poscar(poscar)
+
+        if len(atom_names) > hp["max_atoms"]:
+            ii += 1
+            continue#store this
+        
+        #variable dimensional
+        #Note that we interleave the atomics
+        pa_ = np.array([poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])
+        pa_ = np.transpose(pa_, (1, 0, 2))
+        pa_ = np.reshape(pa_, (pa_.shape[0], -1))
+        pa_ = np.concatenate((pa_, np.zeros((hp["max_atoms"] - len(atom_names), pa_.shape[1]))))
+
+        pi.append(flatten(pi_))
+        pa.append(pa_)
+        go.append(flatten(go_))
+
+    print(ii, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
+
+    with open("processed.pickle", "wb") as f:
+        pickle.dump({
+            "data": np.concatenate((np.array(pa), np.array(pi)), axis=1),
+            "labels": np.array(go),
+            "labels_types": go_types,
+            "labels_nums": go_nums
+        },f)
+
+
+with open("processed.pickle", "rb") as f:
+    data = pickle.load(f)
+    inputs = data["data"]
+    labels = data["labels"]
+    label_types = data["labels_types"]
+    label_nums = data["labels_nums"]
+
+    output_dim = sum(label_nums)
+
+
+    # Split the data into training and validation sets
+    ##X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
+    X_train, y_train, X_val, y_val = partition_dataset(0.1, inputs, labels)
+
+    #Now, attempt to load the model NNN.params if it exists, otherwise init with haiku
+    # Initialize the network
+    net = hk.transform(net_fn)
+    rng = jax.random.PRNGKey(0x09F911029D74E35BD84156C5635688C0 % 2**32)
+    init_rng, train_rng = jax.random.split(rng)
+    params = net.init(init_rng, X_train[0], is_training=True)
+    if exists("NNN.params"):
+        with open("NNN.params", "rb") as f:
+            params = pickle.load(f)
+        print("Loaded model from NNN.params")
 
     
-    if step % 100 == 10:
-      # Periodically evaluate classification accuracy on train & test sets.
-      train_accuracy = accuracy(avg_params, 
-                                mixAtoms(iterData[ii][:,:-globals["labelSize"]]),
-                                          iterData[ii][:, -globals["labelSize"]:])
-      test_accuracy = accuracy(avg_params,
-                                mixAtoms(iterData[0][:,:-globals["labelSize"]]),
-                                         iterData[0][:, -globals["labelSize"]:])
-      train_accuracy, test_accuracy = jax.device_get(
-          (train_accuracy, test_accuracy))
-      print(f"[Step {step}] Train / Test accuracy: "
-            f"{train_accuracy:.3f} / {test_accuracy:.3f}.")
+    # Create the optimizer
+    # Learning rate schedule: linear ramp-up and then constant
+    num_epochs = 1000
+    num_batches = X_train.shape[0] // hp["batch_size"]
+    ramp_up_epochs = 50  # Number of epochs to linearly ramp up the learning rate
+    total_ramp_up_steps = ramp_up_epochs * num_batches
+    lr_schedule = optax.linear_schedule(init_value=1e-5, 
+                                        end_value =1e-3, 
+                                        transition_steps=total_ramp_up_steps)
 
+    # Optimizer
+    optimizer = optax.noisy_sgd(learning_rate=lr_schedule)
+    opt_state = optimizer.init(params)
+
+    compute_loss_fn = jax.jit(functools.partial(loss_fn, net,label_types,label_nums))
+    compute_accuracy_fn = jax.jit(functools.partial(accuracy_fn, net,label_types,label_nums))
+
+
+
+    try:
+        for epoch in range(num_epochs):
+            for i in range(num_batches):
+                batch_rng = jax.random.fold_in(train_rng, i)
+                batch_start, batch_end = i * hp["batch_size"], (i + 1) * hp["batch_size"]
+                X_batch = X_train[batch_start:batch_end]
+                y_batch = y_train[batch_start:batch_end]
+                #print all the types for debug purposes:
+
+                (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, X_batch, y_batch)
+                updates, opt_state = optimizer.update(grad, opt_state)
+                params = optax.apply_updates(params, updates)
+            
+
+            # Save the training and validation loss
+            train_accuracy = compute_accuracy_fn(params, batch_rng, X_train, y_train)
+            val_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
+            print(f"Epoch {epoch}, Training accuracy: {train_accuracy}, Validation accuracy: {val_accuracy}")
+    except KeyboardInterrupt:
+        with open("NNN.params", "wb") as f:
+            pickle.dump(params, f)
+        print("Keyboard interrupt, saving model")
     
-    # Do SGD on a batch of training examples.
-    params, opt_state = update(params, opt_state, 
-                               mixAtoms(iterData[ii][:,:-globals["labelSize"]]), 
-                                         iterData[ii][:, -globals["labelSize"]:])
-    avg_params = ema_update(params, avg_params)
-
-
-
-cmd_line(main, "csnn")
+    with open("NNN.params", "wb") as f:
+        pickle.dump(params, f)
+    print("Done training")
