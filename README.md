@@ -17,6 +17,13 @@ This project provides machine learning methods that are theoretically fully gene
 
 To run an experiment, follow these steps:
 
+0. **Install Dependencies**
+   - Initialize a new virtual environment upon setting up this project.
+   `conda create --name mmp --file requirements.txt`. This will install all dependencies necessary to train and apply the models.
+
+   - Before using this project in a new terminal, run `conda activate mmp` to activate this new environment.
+
+
 1. **Create a Folder for the Experiment**
    - Make a new directory for your experiment.
 
