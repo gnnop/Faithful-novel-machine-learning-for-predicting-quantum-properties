@@ -25,6 +25,24 @@ EOF
     echo -e "${NC}"
 }
 
+# Function to check if a command exists
+function command_exists {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Check if Conda is installed
+if ! command_exists conda; then
+    echo -e "${RED}Conda is not installed. Please install Conda and try again.${NC}"
+    exit 1
+fi
+
+# Check if 7z is installed
+if ! command_exists 7z; then
+    echo -e "${RED}7z is not installed. Please install 7z and try again.${NC}"
+    exit 1
+fi
+
+
 # Function to detect NVIDIA driver version and suggest CUDA version
 function detect_cuda_version {
     driver_version=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -n 1)
@@ -66,9 +84,9 @@ function install_dependencies {
         conda run -n mmp pip install --upgrade pip
         detect_cuda_version
         if [[ -z "$cuda_version" ]]; then
-            conda run -n mmp pip install jax
+            conda run -n mmp pip install jax chex optax dm-haiku jraph
         else
-            conda run -n mmp pip install jax jaxlib==0.4.14+cuda12.cudnn89 -f https://storage.googleapis.com/jax-releases/jax_releases.html
+            conda run -n mmp pip install "jax[cuda12]" chex optax dm-haiku jraph
         fi
     fi
 }
@@ -159,7 +177,7 @@ function prepare_input_components {
     echo -e "${YELLOW}Copying selected components to the 'inputs' folder...${NC}"
     poscar_atomic_included=false
     while true; do
-        echo -e "${CYAN}Enter the component filename to copy (or 'done' to finish): ${NC}"
+        echo -e "${CYAN}Enter a component filename to copy (or 'done' to finish): ${NC}"
         read component_file
         if [[ "$component_file" == "done" ]]; then
             if [ "$poscar_atomic_included" = false ]; then
