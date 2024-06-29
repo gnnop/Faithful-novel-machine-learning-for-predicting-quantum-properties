@@ -13,7 +13,7 @@ This project provides machine learning methods that are theoretically fully gene
 
 ### Automated (Linux only)
 
-An interactive experiment setup wizard is provided for Linux users. Run `bash wizard.bash`.
+An interactive experiment setup wizard is provided for Linux users. Run `bash wizard.bash` to get started. This script needs [`conda`](https://docs.conda.io/projects/conda/en/latest/user-guide/install/linux.html) and [`7z`](https://www.7-zip.org/download.html)
 
 ### Manual (All operating systems)
 
@@ -23,7 +23,7 @@ To run an experiment, follow these steps:
    - Initialize a new virtual environment upon setting up this project.
    `conda env create -f environment.yaml`. This will install most dependencies necessary to train and apply the models.
    - Install JAX in that environment: `conda run -n mmp pip install jax chex optax dm-haiku jraph`.
-      - Note: This step remains separate from the rest of the packages to give you flexibility in the way JAX is installed. Refer to [the official JAX installation details](https://jax.readthedocs.io/en/latest/installation.html) for more detailed information.
+      - Note: Installing the JAX libraries remains separate from installing the rest of the packages to give you flexibility in the way JAX is installed. Refer to [the official JAX installation details](https://jax.readthedocs.io/en/latest/installation.html) for more detailed information.
    - Every time this project is used in a new terminal, run `conda activate mmp` to activate this new environment before starting any experiments.
 
 1. **Create a Folder for the Experiment**
