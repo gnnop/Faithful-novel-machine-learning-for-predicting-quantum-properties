@@ -1,7 +1,3 @@
-Sure, here's a formatted README for the project based on the provided data:
-
----
-
 # Materials Modeling Project
 
 This project provides machine learning methods that are theoretically fully general, capable of modeling any material property desires. It is designed specifically to be simple to use on novel materials problems.
@@ -22,7 +18,6 @@ To run an experiment, follow these steps:
    `conda create --name mmp --file requirements.txt`. This will install all dependencies necessary to train and apply the models.
 
    - Before using this project in a new terminal, run `conda activate mmp` to activate this new environment.
-
 
 1. **Create a Folder for the Experiment**
    - Make a new directory for your experiment.
@@ -74,6 +69,3 @@ An example setup can be found in the `experiment_naive` folder.
 - The `includes.py` file provides additional functionality and should be included in your experiment setup if needed.
 - The `how to use.txt` file contains additional instructions and tips for using the project.
 
----
-
-This README should provide a clear guide for setting up and running experiments with the provided materials modeling project.
