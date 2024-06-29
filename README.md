@@ -15,8 +15,7 @@ To run an experiment, follow these steps:
 
 0. **Install Dependencies**
    - Initialize a new virtual environment upon setting up this project.
-   `conda create --name mmp --file requirements.txt`. This will install all dependencies necessary to train and apply the models.
-
+   `conda env create -f environment.yaml`. This will install all dependencies necessary to train and apply the models.
    - Before using this project in a new terminal, run `conda activate mmp` to activate this new environment.
 
 1. **Create a Folder for the Experiment**
@@ -24,6 +23,7 @@ To run an experiment, follow these steps:
 
 2. **Select a Model**
    - Copy a model file from the `MODELS` folder into your experiment directory.
+   - Also copy `includes.py` into the experiment folder.
 
 3. **Create Subfolders**
    - Inside your experiment directory, create two subfolders:

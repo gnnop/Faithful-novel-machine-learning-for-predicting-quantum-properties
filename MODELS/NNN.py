@@ -1,5 +1,7 @@
 import sys, os, shutil
 
+os.chdir(os.path.dirname(os.path.realpath(__file__)))
+
 #standard thing that makes sure all dependencies resolve.
 def copy_file_to_directories(filename, target_dirs):
     source_path = os.path.abspath(filename)
@@ -16,8 +18,8 @@ def copy_file_to_directories(filename, target_dirs):
         print(f"Copied {source_path} to {target_path}")
 
 # Define the relative paths of the target directories
-target_directories = ['.', 'input', 'output']
-copy_file_to_directories('../includes.py', target_directories)
+target_directories = ['input', 'output']
+copy_file_to_directories('includes.py', target_directories)
 
 
 #Now the rest of the file.
