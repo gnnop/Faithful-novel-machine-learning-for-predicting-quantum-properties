@@ -27,8 +27,8 @@ To run an experiment, follow these steps:
 
 3. **Create Subfolders**
    - Inside your experiment directory, create two subfolders:
-     - `inputs/`
-     - `target/`
+     - `input/`
+     - `output/`
 
 4. **Prepare Input Components**
    - Copy the desired components into the `inputs/` folder.
