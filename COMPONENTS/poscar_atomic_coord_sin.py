@@ -18,5 +18,7 @@ def info(poscar):
         curIndx+=1
         if curIndx > numbs[atomType]:
             atomType+=1
-        
-        nodesArray.append([getRelativeCoordinates(i) for i in unpackLine(poscar[8+i])])
+
+        nodesArray.append(flatten([getRelativeCoordinates(i) for i in unpackLine(poscar[8+i])]))
+    
+    return nodesArray
