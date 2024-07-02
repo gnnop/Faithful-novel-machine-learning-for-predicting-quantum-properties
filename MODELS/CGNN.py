@@ -283,7 +283,7 @@ def extractGraph(atomic, positional_encoding, absolute_position, glob, label_siz
         n_node=jnp.array([len(nodesArray)]),
         n_edge=jnp.array([len(senderArray)]))
 
-if not exists("processed.pickle"):
+if not exists("CGNN.pickle"):
 
     #the atomic embeddings are assumed to be both input and available for all
     #poscar files. The global embeddings are assumed to not exist for all elements.
@@ -335,7 +335,7 @@ if not exists("processed.pickle"):
 
     print(ii, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
 
-    with open("processed.pickle", "wb") as f:
+    with open("CGNN.pickle", "wb") as f:
         pickle.dump({
             "data": data,
             "labels": labels,
@@ -344,7 +344,7 @@ if not exists("processed.pickle"):
         },f)
 
 
-with open("processed.pickle", "rb") as f:
+with open("CGNN.pickle", "rb") as f:
     data = pickle.load(f)
     inputs = data["data"]
     labels = data["labels"]
