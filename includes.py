@@ -8,8 +8,8 @@ import pickle
 input_dir = './input'
 output_dir = './output'
 #The csvs are called from input and output,so pop up two places. poscars is from the model, so only pop up one
-poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), '../POSCAR'))
-csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), '../CSV'))
+poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), '..\\POSCAR\\'))
+csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), '..\\CSV\\'))
 
 import importlib.util
 
@@ -87,11 +87,11 @@ completeTernary = list(itertools.product([-1, 0, 1], repeat=3))
 
 #for poscar processing
 def unpackLine(str):
-    x = str.split()
+    x = str.split()[0:3]
     return list(map(float, x))
 
 def preprocessPoscar(id):
-    poscar = open(os.path.join(poscars, str(id) + ".POSCAR"), "r").read()
+    poscar = open(poscars + "\\" + str(id) + ".POSCAR", "r").read()
     inter = list(map(lambda a: a.strip(), poscar.split("\n")))
     return inter
 
@@ -109,7 +109,7 @@ class CSVLoader:
         self.load_csv()
 
     def load_csv(self):
-        with open(os.path.join(csvs, self.file_name), mode='r', newline='') as csvfile:
+        with open(csvs + "\\" + self.file_name, mode='r', newline='') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
                 if row:  # Ensure the row is not empty
@@ -142,7 +142,7 @@ def getRelativeCoordinates(val):
             * fourierFeaturesPeriodScale**(i+1)
             * val
         ) 
-        for i in range(relativeCoordinateLength)
+        for i in range(int(relativeCoordinateLength))
     ]
 
 def getAbsoluteCoords(val):
@@ -154,7 +154,7 @@ def getAbsoluteCoords(val):
             / initialPeriod
             *val
         ) 
-        for i in range(relativeCoordinateLength / 2.0)
+        for i in range(int(relativeCoordinateLength / 2.0))
     ]
 
 def flatten(nested_list):
@@ -203,23 +203,31 @@ def partition_dataset(validation_percentage, *arrays):
         raise ValueError("At least one array must be provided")
 
     # Calculate the number of validation samples
-    num_data = arrays[0].shape[0]
+    if isinstance(arrays[0], list):
+        num_data = len(arrays[0])
+    else:
+        num_data = arrays[0].shape[0]
     num_val_samples = int(num_data * validation_percentage)
 
     # Generate shuffled indices
     indices = jnp.arange(num_data)
     shuffled_indices = jax.random.permutation(jax.random.PRNGKey(314), indices)
 
+
+    val_indices = shuffled_indices[:num_val_samples]
+    train_indices = shuffled_indices[num_val_samples:]
+    
     # Split each array into training and validation sets
     train_sets = []
     val_sets = []
 
     for array in arrays:
-        val_indices = shuffled_indices[:num_val_samples]
-        train_indices = shuffled_indices[num_val_samples:]
-
-        train_sets.append(array[train_indices])
-        val_sets.append(array[val_indices])
+        if isinstance(array, list):
+            train_sets.append([array[i] for i in train_indices])
+            val_sets.append([array[i] for i in val_indices])
+        else:
+            train_sets.append(array[train_indices])
+            val_sets.append(array[val_indices])
 
     return (*train_sets, *val_sets)
 
