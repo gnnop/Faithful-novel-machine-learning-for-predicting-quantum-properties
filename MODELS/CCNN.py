@@ -135,7 +135,7 @@ def unpack_data(index, data_item, ccnn_depth, randomRotate=False):
 
 if __name__ == '__main__':
     #The primary purpose of pickling here is to get rid of atomic structures that are too large.
-    if not exists("processed.pickle"):
+    if not exists("CCNN.pickle"):
 
         #the atomic embeddings are assumed to be both input and available for all
         #poscar files. The global embeddings are assumed to not exist for all elements.
@@ -221,7 +221,7 @@ if __name__ == '__main__':
         print(atomsTooClose, "poscars were skipped due to atoms being too close to each other")
 
 
-        with open("processed.pickle", "wb") as f:
+        with open("CCNN.pickle", "wb") as f:
             pickle.dump({
                 "data_local": pa,#This is unpacked on the other side
                 "data_global": np.array(pi),
@@ -231,7 +231,7 @@ if __name__ == '__main__':
             },f)
 
 
-    with open("processed.pickle", "rb") as f:
+    with open("CCNN.pickle", "rb") as f:
         data = pickle.load(f)
         inputs_global = data["data_global"]
         inputs = data["data_local"]
