@@ -10,4 +10,7 @@ def valid_ids():
     return csv_loader.valid_ids()
 
 def info(id):
-    return getAbsoluteCoords(-1.0 * csv_loader.info(id))
+    v = csv_loader.info(id)
+    if not v:
+        return None
+    return getAbsoluteCoords(float(v))

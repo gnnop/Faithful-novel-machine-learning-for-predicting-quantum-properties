@@ -10,4 +10,7 @@ def valid_ids():
     return csv_loader.valid_ids()
 
 def info(id):
-    return -1.0 * csv_loader.info(id)
+    v = csv_loader.info(id)
+    if v is None:
+        return None
+    return -1.0 * v

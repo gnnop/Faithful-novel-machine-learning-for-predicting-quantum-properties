@@ -30,32 +30,28 @@ load_submodules() #this is a function in includes.py that loads all the submodul
 
 # hyperparameters
 hp = {
-    "dropoutRate": 0.1,
+    "layer_size" : None, # number of perceptrons in a layer. If None provided, automatically determined by the number of inputs
     "max_atoms": 40,
-    "batch_size": 64,
+    "batch_size": 1000,
+    "dropout_rate": 0.1,
 }
 
 
 
-# Define the neural network with dropout
-def net_fn(batch, is_training=False, dropout_rate=0):
+# Define the neural network
+def net_fn(batch, is_training=False):
     mlp = hk.Sequential([
         # fully connected layer with dropout
-        hk.Linear(3000), jax.nn.relu,
-        # Apply dropout only during training, with corrected argument order
-        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=dropout_rate) if is_training else x, 
+        hk.Linear(hp["layer_size"]), jax.nn.relu,
+        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,  
 
         # fully connected layer with dropout
-        hk.Linear(2000), jax.nn.relu,
-        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=dropout_rate) if is_training else x,       
+        hk.Linear(hp["layer_size"]), jax.nn.relu, 
+        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,  
 
         # fully connected layer with dropout
-        hk.Linear(1000), jax.nn.relu,
-        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=dropout_rate) if is_training else x,  
-        
-        # fully connected layer
-        hk.Linear(100), jax.nn.relu,
-        # lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=dropout_rate) if is_training else x, 
+        hk.Linear(hp["layer_size"]), jax.nn.relu,
+        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,  
         
         hk.Linear(output_dim)  # Assuming full set of categories
     ])
@@ -91,7 +87,7 @@ if not exists("processed.pickle"):
     pa = []
     go = []
     go_types = [i.classifier() for i in global_outputs]
-    go_nums = [len(i.info(1)) for i in global_outputs]
+    go_nums = [len(i.info(list(i.valid_ids())[0])) for i in global_outputs] # Grab the size of the first valid element in each global output
 
     ii = 0
     for i in ids:
@@ -105,7 +101,7 @@ if not exists("processed.pickle"):
         #Note that we interleave the atomics
         pa_ = [poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics]
 
-        pa_ = [item for sublist in pa_ for item in sublist]
+        pa_ = [item for sublist in pa_ if sublist for item in sublist]
 
         #fixed dimensional
         go_ = []
@@ -161,13 +157,23 @@ with open("processed.pickle", "rb") as f:
 
 
     # Split the data into training and validation sets
-    ##X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
     X_train, y_train, X_val, y_val = partition_dataset(0.1, inputs, labels)
 
-    #Now, attempt to load the model NNN.params if it exists, otherwise init with haiku
+    # Automatically adjust the size of the NN if requested by the user (by setting "layer_size" to None)
+    if not hp["layer_size"]:
+        hp["layer_size"] = len(X_train[0])
+
+    print(len(X_train))
+    print(len(X_train[0]))
+    print(len(y_train))
+    print(len(y_train[0]))
+    print(X_train[0])
+    print(y_train[0])
+
+    # Now, attempt to load the model NNN.params if it exists, otherwise init with haiku
     # Initialize the network
     net = hk.transform(net_fn)
-    rng = jax.random.PRNGKey(0x09F911029D74E35BD84156C5635688C0 % 2**32)
+    rng = jax.random.PRNGKey(0x4d696361684d756e64790a % 2**32)
     init_rng, train_rng = jax.random.split(rng)
     params = net.init(init_rng, X_train[0], is_training=True)
     if exists("NNN.params"):
@@ -178,12 +184,12 @@ with open("processed.pickle", "rb") as f:
     
     # Create the optimizer
     # Learning rate schedule: linear ramp-up and then constant
-    num_epochs = 1000
+    num_epochs = 5000
     num_batches = X_train.shape[0] // hp["batch_size"]
-    ramp_up_epochs = 50  # Number of epochs to linearly ramp up the learning rate
+    ramp_up_epochs = 500  # Number of epochs to linearly ramp up the learning rate
     total_ramp_up_steps = ramp_up_epochs * num_batches
-    lr_schedule = optax.linear_schedule(init_value=1e-5, 
-                                        end_value =1e-3, 
+    lr_schedule = optax.linear_schedule(init_value=1e-6, 
+                                        end_value =1e-5, 
                                         transition_steps=total_ramp_up_steps)
 
     # Optimizer

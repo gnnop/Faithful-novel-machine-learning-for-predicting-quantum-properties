@@ -8,8 +8,8 @@ import pickle
 input_dir = './input'
 output_dir = './output'
 #The csvs are called from input and output,so pop up two places. poscars is from the model, so only pop up one
-poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), '../POSCAR'))
-csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), '../CSV'))
+poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), './POSCAR'))
+csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), './CSV'))
 
 import importlib.util
 
@@ -76,6 +76,7 @@ def process_directory(directory, is_input):
 
 # Process each directory
 def load_submodules():
+    global global_inputs, global_outputs
     process_directory(input_dir, is_input=True)
     process_directory(output_dir, is_input=False)
 
@@ -112,7 +113,7 @@ class CSVLoader:
         with open(os.path.join(csvs, self.file_name), mode='r', newline='') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
-                if row:  # Ensure the row is not empty
+                if row and len(row) == 2:  # Ensure the row is not empty
                     self.data[row[0]] = row[1]
 
     def valid_ids(self):
@@ -126,7 +127,7 @@ class CSVLoader:
 #Specifically, these functions are typically used by a couple files,
 #but I pull them here due to how general they are. 
 relativeCoordinateLength = 5
-absoluteCoordinateLength = 2.0*5.0
+absoluteCoordinateLength = relativeCoordinateLength*2
 fourierFeaturesPeriodScale = 2.0
 
 def getRelativeCoordinates(val):
@@ -154,7 +155,7 @@ def getAbsoluteCoords(val):
             / initialPeriod
             *val
         ) 
-        for i in range(relativeCoordinateLength / 2.0)
+        for i in range(absoluteCoordinateLength)
     ]
 
 def flatten(nested_list):
@@ -224,7 +225,7 @@ def partition_dataset(validation_percentage, *arrays):
     return (*train_sets, *val_sets)
 
 
-#Consider, adding in more customizeability
+# Consider adding in more customizability
 def loss_fn(net, learning_type,learning_num, params, rng, inputs, targets):
     error = 0.0
     accuracy = jnp.array([])
@@ -245,7 +246,8 @@ def loss_fn(net, learning_type,learning_num, params, rng, inputs, targets):
     
     return error, accuracy
 
-#Only these functions get called on
+# A function that returns a value from 0 to 1. 0 means the model is terrible and doesn't predict anything. 
+# 1 means the model always makes a perfect prediction.
 def accuracy_fn(net, learning_type, learning_num, params, rng, inputs, targets):
     accuracy = jnp.array([])
     location = 0
