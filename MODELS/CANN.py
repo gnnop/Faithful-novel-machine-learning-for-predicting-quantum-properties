@@ -211,6 +211,7 @@ with open("CANN.pickle", "rb") as f:
 
 
     try:
+        training_acc = ExponentialDecayWeighting(0.9)
         for epoch in range(num_epochs):
             for i in range(num_batches):
                 batch_rng = jax.random.fold_in(train_rng, i)
@@ -223,12 +224,17 @@ with open("CANN.pickle", "rb") as f:
                 (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, (X_batch,X_batch_global), y_batch)
                 updates, opt_state = optimizer.update(grad, opt_state)
                 params = optax.apply_updates(params, updates)
+
+                training_acc.add_accuracy(accs)
+                if i % 10 == 0:
+                  print(training_acc.get_weighted_average())
+
+                
             
 
-            # Save the training and validation loss
-            train_accuracy = compute_accuracy_fn(params, batch_rng, (X_train, globals_train), y_train)
+            # Save the training and validation loss - for uniformity, we need to make sure this is always the same. Also, for some networks, the following needs to be shrunk
             val_accuracy = compute_accuracy_fn(params, batch_rng, (X_val, globals_val), y_val)
-            print(f"Epoch {epoch}, Training accuracy: {train_accuracy}, Validation accuracy: {val_accuracy}")
+            print(f"Epoch {epoch}, Validation accuracy: {val_accuracy}")
     except KeyboardInterrupt:
         with open("NNN.params", "wb") as f:
             pickle.dump(params, f)
