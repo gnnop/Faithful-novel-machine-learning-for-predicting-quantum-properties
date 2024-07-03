@@ -3,7 +3,7 @@ from includes import *
 csv_loader = CSVLoader('space_group.csv')
 
 def classifier():
-    return "classification"
+    return loss_classification
 
 # Functions to be used in another module
 def valid_ids():
