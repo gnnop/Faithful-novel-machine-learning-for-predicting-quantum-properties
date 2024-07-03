@@ -1,7 +1,7 @@
 from includes import *
 
 # Create an instance of the loader to keep the CSV loaded
-csv_loader = CSVLoader('simple_tqc.csv')
+csv_loader = CSVLoader('space_group.csv')
 
 def serializeSpaceGroup(num):
     if 1<=num<=1:
@@ -70,7 +70,7 @@ def serializeSpaceGroup(num):
         return 31
 
 def classifier():
-    return "classification"
+    return loss_classification
 
 # Functions to be used in another module
 def valid_ids():
