@@ -91,7 +91,7 @@ if not exists("NNN.pickle"):
     pa = []
     go = []
     go_types = [i.classifier() for i in global_outputs]
-    go_nums = [len(i.info(1)) for i in global_outputs]
+    go_nums = [len(i.info(str(1))) for i in global_outputs]
 
     ii = 0
     for i in ids:
