@@ -25,18 +25,17 @@ if __name__ == '__main__':
 #Now the rest of the file.
 
 from includes import *
-if __name__ == '__main__':
-    load_submodules() #this is a function in includes.py that loads all the submodules.
+load_submodules() #this is a function in includes.py that loads all the submodules.
 
 
 # hyperparameters
 hp = {
     "dropoutRate": 0.1,
     "max_atoms": 40,
-    "batch_size": 8,
+    "batch_size": 32,
     "maxDims": 48,#The input vector is a 3D lattice of size maxDims x maxDims x maxDims of atoms, represented as vectors of size maxRep.
     "conversionFactor": 1.45,#It is assumed that all atoms have the same size. This is the relative radius of each atom in lattice units.
-    "num_proc": 12,
+    "num_proc": 8,
 }
 
 hp["centre"] = np.array( [hp["maxDims"] / 2, hp["maxDims"] / 2, hp["maxDims"] / 2] )
@@ -126,11 +125,52 @@ def unpack_data(index, data_item, ccnn_depth, randomRotate=False):
     return (index, space) #This is the data that is passed to the network, needs concatenation with global data still.
 
 
+def preprocess_data(index):
+    poscar = preprocessPoscar(index)
 
+    #fixed dimensional
+    pi_ = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(index) for global_input in global_inputs]
 
+    #We do a partial implantation into the coercive structure in order to determine which if any materials are issues.
+    axes = getGlobalDataVector(poscar)
+    numbs = poscar[6].split()
+    encoding = set()
 
+    total = 0
+    for ii in range(len(numbs)):
+        total+=int(numbs[ii])
+        numbs[ii] = total
+    
+    #The atoms are encoded in two sets in the pa since this is a different encoding type
+    positions_ = [atomToArray(unpackLine(poscar[8+ii]), axes) for ii in range(total)]
 
+    inputs_ = np.array([sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])])
+    pa_ = (positions_, inputs_, axes)#The axes are for unpacking the mask
 
+    #I don't currently check if the primitive cell is outside the transformation - FIX
+    for pos_ in positions_:
+        if not (-1 < pos_[0] < hp["maxDims"] and -1 < pos_[1] < hp["maxDims"] and -1 < pos_[2] < hp["maxDims"]):
+            return ("too far", None, None, None)
+        
+        for j in completeTernary:
+            #This tiles out everything, then I dither the pixels
+            points, vol = givenPointDetermineCubeAndOverlap(atomToArray(pos_ + np.array(j), axes))
+            for jj in range(len(points)):
+                if -1 < points[jj][0] < hp["maxDims"] and -1 < points[jj][1] < hp["maxDims"] and -1 < points[jj][2] < hp["maxDims"]:
+                    if points[jj] not in encoding:
+                        encoding.add((points[jj][0], points[jj][1], points[jj][2]))
+                    else:
+                        return ("too close", None, None, None)
+
+                
+    
+
+    #fixed dimensional
+    go_ = []
+    for func in range(len(global_outputs)):
+        go_.append(global_outputs[func].info(index))
+
+    return ("good", flatten(pi_), pa_, flatten(go_))
 
 
 if __name__ == '__main__':
@@ -160,62 +200,40 @@ if __name__ == '__main__':
         pa = []
         go = []
         go_types = [i.classifier() for i in global_outputs]
-        go_nums = [len(i.info(1)) for i in global_outputs]
+        go_nums = [len(i.info(str(1))) for i in global_outputs]
 
         atomsOutOfEmbedding = 0
         atomsTooClose = 0
-        for i in ids:
 
-            poscar = preprocessPoscar(i)
+        def accumulate_data(args):
+            global atomsOutOfEmbedding 
+            global atomsTooClose
+            global pi
+            global pa
+            global go
 
-            #fixed dimensional
-            pi_ = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs]
+            if len(pi) % 1000 == 0:
+                print(len(pi), "poscars processed")
 
-            #We do a partial implantation into the coercive structure in order to determine which if any materials are issues.
-            axes = getGlobalDataVector(poscar)
-            numbs = poscar[6].split()
-            encoding = set()
+            if args[0] == "good":
+                pi.append(args[1])
+                pa.append(args[2])
+                go.append(args[3])
+            elif args[0] == "too far":
+                atomsOutOfEmbedding += 1
+            elif args[0] == "too close":
+                atomsTooClose += 1
 
-            total = 0
-            for i in range(len(numbs)):
-                total+=int(numbs[i])
-                numbs[i] = total
-            
-            #The atoms are encoded in two sets in the pa since this is a different encoding type
-            positions_ = [atomToArray(unpackLine(poscar[8+i]), axes) for i in range(total)]
+        
+        # Create a pool of worker processes
+        pool = Pool(processes=hp["num_proc"])
 
-            inputs_ = np.array([poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])
-            inputs_ = np.reshape(inputs_, (-1, inputs_.shape[-1]))
-            pa_ = (positions_, inputs_, axes)#The axes are for unpacking the mask
+        for index in list(ids):
+            pool.apply_async( preprocess_data, args=(index,) , callback=accumulate_data )
 
-            for j in completeTernary:
-                #This tiles out everything, then I dither the pixels
-                points, vol = givenPointDetermineCubeAndOverlap(atomToArray(unpackLine(poscar[8+i]) + np.array(j), axes))
-                for jj in range(len(points)):
-                    if -1 < points[jj][0] < hp["maxDims"] and -1 < points[jj][1] < hp["maxDims"] and -1 < points[jj][2] < hp["maxDims"] and points[jj][0] >= 0 and points[jj][1] >= 0 and points[jj][2] >= 0:
-                        if points[jj] not in encoding:
-                            encoding.add((points[jj][0], points[jj][1], points[jj][2]))
-                        else:
-                            print("Enlarge the encoding, this data is corrupted!")
-                            print("The offending poscar is", poscar)
-                            print(encoding)
-                            print(points[jj])
-
-                            exit()#hard failure
-
-                            #if you're ok with losing some more atoms.
-                            atomsTooClose += 1
-                            continue
-            
-
-            #fixed dimensional
-            go_ = []
-            for func in range(len(global_outputs)):
-                go_.append(global_outputs[func].info(i))
-
-            pi.append(flatten(pi_))
-            pa.append(pa_)
-            go.append(flatten(go_))
+        pool.close()
+        pool.join()
+        print(len(pa))
 
         print(atomsOutOfEmbedding, "poscars were skipped due atoms being too far from the centre")
         print(atomsTooClose, "poscars were skipped due to atoms being too close to each other")
@@ -263,7 +281,7 @@ if __name__ == '__main__':
         
         # Create the optimizer
         # Learning rate schedule: linear ramp-up and then constant
-        num_epochs = 1000
+        num_epochs = 3
         num_batches = len(X_train) // hp["batch_size"]
         ramp_up_epochs = 50  # Number of epochs to linearly ramp up the learning rate
         total_ramp_up_steps = ramp_up_epochs * num_batches
@@ -284,9 +302,9 @@ if __name__ == '__main__':
             #Now, for the unpacking, we need multithreading
             manager = Manager()
             results_queue = manager.Queue()
+            training_acc = ExponentialDecayWeighting(0.99)
 
             # Create a pool of worker processes
-            num_proc = 8
             pool = Pool(processes=hp["num_proc"])
 
             for _ in range(num_epochs):
@@ -299,7 +317,6 @@ if __name__ == '__main__':
 
             while True:
                 result = results_queue.get()
-                print("got result")
 
                 if result is None:
                     #There will be less than a batch of data left, so just flush it.
@@ -308,18 +325,19 @@ if __name__ == '__main__':
                 batch.append(result)
 
                 if len(batch) == hp["batch_size"]:
-                    print("processing")
                     conv_data = np.array( [i[1] for i in batch] )
-                    g_data = np.array( [inputs_global[i[0]] for i in conv_data] )
-                    label_data = np.array( [labels[i[0]] for i in conv_data] )
+                    g_data = np.array( [inputs_global[i[0]] for i in batch] )
+                    label_data = np.array( [labels[i[0]] for i in batch] )
 
                     (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, (conv_data, g_data), label_data)
                     updates, opt_state = optimizer.update(grad, opt_state)
                     params = optax.apply_updates(params, updates)
 
-                    print(loss, accs)
+
+                    training_acc.add_accuracy(accs)
+                    print("trainging accuracy: ", training_acc.get_weighted_average())
+
                     batch.clear()
-                    print("processed")
             
             pool.close()
             pool.join()
