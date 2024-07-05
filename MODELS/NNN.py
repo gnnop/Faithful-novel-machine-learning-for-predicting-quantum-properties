@@ -101,9 +101,8 @@ if not exists("NNN.pickle"):
 
         #variable dimensional
         #Note that we interleave the atomics
-        pa_ = [poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics]
+        pa_ = [sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])]
 
-        pa_ = [item for sublist in pa_ if sublist for item in sublist]
 
         #fixed dimensional
         go_ = []

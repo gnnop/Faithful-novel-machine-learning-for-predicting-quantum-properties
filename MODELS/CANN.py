@@ -46,23 +46,23 @@ def MAB(X, Y, is_self_attention=False):
 def SAB(X):
   return MAB(X, X, is_self_attention=True)
 
-def ISAB(X, num_inducing_points=16):
-  inducing_points = hk.get_parameter("inducing_points", shape=[num_inducing_points, X.shape[-1]], init=hk.initializers.RandomNormal(stddev=0.1))
+def ISAB(X,param_name, num_inducing_points=16):
+  inducing_points = hk.get_parameter(param_name, shape=(num_inducing_points, X.shape[-1]), init=jnp.zeros)
   H = MAB(inducing_points, X)
   return MAB(X, H, is_self_attention=False)
 
-def PMA(Z):
+def PMA(Z, param_name):
   num_seeds=1 #apply SAB after if you ever need more vectors out the end
-  seed_vectors = hk.get_parameter("seed_vectors", shape=[num_seeds, Z.shape[-1]], init=hk.initializers.RandomNormal())
+  seed_vectors = hk.get_parameter(param_name, shape=[num_seeds, Z.shape[-1]], init=hk.initializers.RandomNormal())
   return MAB(seed_vectors, hk.Linear(Z.shape[-1])(Z), is_self_attention=False)
 
 def encoder(X):
-  X = ISAB(ISAB(ISAB(X)))
+  X = ISAB(ISAB(ISAB(X, "ind1"), "ind2"), "ind3")
   return X
 
 def decoder(Z):
   #Z = hk.nets.MLP([512, 256, 64], activation=jax.nn.leaky_relu)(Z)#check rep dim - prob not needed
-  Z = PMA(Z)#SAB(PMA(Z))
+  Z = PMA(Z, "seed_vec")#SAB(PMA(Z))
   Z = hk.nets.MLP([512, 256, 64], activation=jax.nn.leaky_relu)(Z)
   return hk.Linear(output_dim)(Z)#implicit global var to avoid passing static_args
 
@@ -83,11 +83,8 @@ def set_transformer(batch, is_training=False, dropout_rate=0):
 
   #Now, batch_atoms is of the form (batch.shape[0], 60, -1) I want to take the batch_global of the form (batch.shape[0], -1), tile it out and attach it to each array
 
-  batch_g = jnp.tile(batch_global, (1, 60, 1))
+  batch_g = jnp.tile(batch_global[:, None, :], (1, hp["max_atoms"], 1))
   reshaped_batch = jnp.concatenate((batch_atoms, batch_g), axis=2)
-
-
-
 
   # Apply set_transformer_single to each example in the batch using jax.vmap
   output = set_transformer_single(reshaped_batch)
@@ -95,8 +92,8 @@ def set_transformer(batch, is_training=False, dropout_rate=0):
   return output
 
 
-def net_fn(batch: jnp.ndarray) -> jnp.ndarray:
-  return set_transformer(batch, globals["labelSize"])
+def net_fn(batch, is_training=False, dropout_rate=0):
+  return set_transformer(batch, output_dim)
 
 output_dim = 0#initialize before calling the network
 
@@ -125,7 +122,7 @@ if not exists("CANN.pickle"):
     pa = []
     go = []
     go_types = [i.classifier() for i in global_outputs]
-    go_nums = [len(i.info(1)) for i in global_outputs]
+    go_nums = [len(i.info(str(1))) for i in global_outputs]
 
     ii = 0
     for i in ids:
@@ -133,7 +130,7 @@ if not exists("CANN.pickle"):
         poscar = preprocessPoscar(i)
 
         #fixed dimensional
-        pi_ = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs]
+        pi_ = flatten([poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs])
 
         #fixed dimensional
         go_ = []
@@ -148,12 +145,11 @@ if not exists("CANN.pickle"):
         
         #variable dimensional
         #Note that we interleave the atomics
-        pa_ = np.array([poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])
-        pa_ = np.transpose(pa_, (1, 0, 2))
-        pa_ = np.reshape(pa_, (pa_.shape[0], -1))
+        pa_ = np.array([sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])])
         pa_ = np.concatenate((pa_, np.zeros((hp["max_atoms"] - len(atom_names), pa_.shape[1]))))
+        
 
-        pi.append(flatten(pi_))
+        pi.append(pi_)
         pa.append(pa_)
         go.append(flatten(go_))
 
@@ -161,7 +157,7 @@ if not exists("CANN.pickle"):
 
     with open("CANN.pickle", "wb") as f:
         pickle.dump({
-            "data": np.concatenate((np.array(pa), np.array(pi)), axis=1),
+            "data": (np.array(pa), np.array(pi)),#do local then global data, so I can reconfigure CANN without having to preprocess again
             "labels": np.array(go),
             "labels_types": go_types,
             "labels_nums": go_nums
@@ -170,7 +166,8 @@ if not exists("CANN.pickle"):
 
 with open("CANN.pickle", "rb") as f:
     data = pickle.load(f)
-    inputs = data["data"]
+    inputs = data["data"][0]
+    inputs_global = data["data"][1]
     labels = data["labels"]
     label_types = data["labels_types"]
     label_nums = data["labels_nums"]
@@ -180,16 +177,16 @@ with open("CANN.pickle", "rb") as f:
 
     # Split the data into training and validation sets
     ##X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
-    X_train, y_train, X_val, y_val = partition_dataset(0.1, inputs, labels)
+    X_train, globals_train, y_train, X_val, globals_val, y_val = partition_dataset(0.1, inputs, inputs_global, labels)
 
     #Now, attempt to load the model NNN.params if it exists, otherwise init with haiku
     # Initialize the network
     net = hk.transform(net_fn)
     rng = jax.random.PRNGKey(0x09F911029D74E35BD84156C5635688C0 % 2**32)
     init_rng, train_rng = jax.random.split(rng)
-    params = net.init(init_rng, X_train[0], is_training=True)
-    if exists("NNN.params"):
-        with open("NNN.params", "rb") as f:
+    params = net.init(init_rng, (jnp.array([X_train[0]]),jnp.array([globals_train[0]])), is_training=True)
+    if exists("CANN.params"):
+        with open("CANN.params", "rb") as f:
             params = pickle.load(f)
         print("Loaded model from NNN.params")
 
@@ -214,23 +211,30 @@ with open("CANN.pickle", "rb") as f:
 
 
     try:
+        training_acc = ExponentialDecayWeighting(0.9)
         for epoch in range(num_epochs):
             for i in range(num_batches):
                 batch_rng = jax.random.fold_in(train_rng, i)
                 batch_start, batch_end = i * hp["batch_size"], (i + 1) * hp["batch_size"]
                 X_batch = X_train[batch_start:batch_end]
+                X_batch_global = globals_train[batch_start:batch_end]
                 y_batch = y_train[batch_start:batch_end]
                 #print all the types for debug purposes:
 
-                (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, X_batch, y_batch)
+                (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, (X_batch,X_batch_global), y_batch)
                 updates, opt_state = optimizer.update(grad, opt_state)
                 params = optax.apply_updates(params, updates)
+
+                training_acc.add_accuracy(accs)
+                if i % 10 == 0:
+                  print(training_acc.get_weighted_average())
+
+                
             
 
-            # Save the training and validation loss
-            train_accuracy = compute_accuracy_fn(params, batch_rng, X_train, y_train)
-            val_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
-            print(f"Epoch {epoch}, Training accuracy: {train_accuracy}, Validation accuracy: {val_accuracy}")
+            # Save the training and validation loss - for uniformity, we need to make sure this is always the same. Also, for some networks, the following needs to be shrunk
+            val_accuracy = compute_accuracy_fn(params, batch_rng, (X_val, globals_val), y_val)
+            print(f"Epoch {epoch}, Validation accuracy: {val_accuracy}")
     except KeyboardInterrupt:
         with open("NNN.params", "wb") as f:
             pickle.dump(params, f)
