@@ -100,7 +100,7 @@ def net_fn(batch: jnp.ndarray) -> jnp.ndarray:
 
 output_dim = 0#initialize before calling the network
 
-if not exists("processed.pickle"):
+if not exists("CANN.pickle"):
 
     #the atomic embeddings are assumed to be both input and available for all
     #poscar files. The global embeddings are assumed to not exist for all elements.
@@ -159,7 +159,7 @@ if not exists("processed.pickle"):
 
     print(ii, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
 
-    with open("processed.pickle", "wb") as f:
+    with open("CANN.pickle", "wb") as f:
         pickle.dump({
             "data": np.concatenate((np.array(pa), np.array(pi)), axis=1),
             "labels": np.array(go),
@@ -168,7 +168,7 @@ if not exists("processed.pickle"):
         },f)
 
 
-with open("processed.pickle", "rb") as f:
+with open("CANN.pickle", "rb") as f:
     data = pickle.load(f)
     inputs = data["data"]
     labels = data["labels"]

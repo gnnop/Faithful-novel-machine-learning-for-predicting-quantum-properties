@@ -62,7 +62,7 @@ def net_fn(batch, is_training=False):
 
 output_dim = 0#initialize before calling the network
 
-if not exists("processed.pickle"):
+if not exists("NNN.pickle"):
 
     #the atomic embeddings are assumed to be both input and available for all
     #poscar files. The global embeddings are assumed to not exist for all elements.
@@ -87,7 +87,9 @@ if not exists("processed.pickle"):
     pa = []
     go = []
     go_types = [i.classifier() for i in global_outputs]
-    go_nums = [len(i.info(list(i.valid_ids())[0])) for i in global_outputs] # Grab the size of the first valid element in each global output
+
+    # Grab the size of the first valid element in each global output
+    go_nums = [len(i.info(list(i.valid_ids())[0])) for i in global_outputs] 
 
     ii = 0
     for i in ids:
@@ -131,13 +133,14 @@ if not exists("processed.pickle"):
         # Now, buff `pa_sorted` out with sublists of the same length as all the other sublists in it until its length max_atoms
         pa_sorted = pa_sorted + [[0. for _ in range(len(pa_sorted[0]))] for _ in range(hp["max_atoms"] - len(pa_sorted))]
 
+
         pi.append(flatten(pi_))
         pa.append(flatten(pa_sorted))
         go.append(flatten(go_))
 
     print(ii, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
 
-    with open("processed.pickle", "wb") as f:
+    with open("NNN.pickle", "wb") as f:
         pickle.dump({
             "data": np.concatenate((np.array(pa), np.array(pi)), axis=1),
             "labels": np.array(go),
@@ -146,7 +149,7 @@ if not exists("processed.pickle"):
         },f)
 
 
-with open("processed.pickle", "rb") as f:
+with open("NNN.pickle", "rb") as f:
     data = pickle.load(f)
     inputs = data["data"]
     labels = data["labels"]
