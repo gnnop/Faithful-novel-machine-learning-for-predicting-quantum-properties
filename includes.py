@@ -122,6 +122,31 @@ class CSVLoader:
         return self.data.get(id, None)
 
 
+
+class ExponentialDecayWeighting:
+    def __init__(self, decay_rate=0.9):
+        self.decay_rate = decay_rate
+        self.accuracies = []
+        self.weighted_sum = None
+        self.normalization_factor = None
+
+    def add_accuracy(self, accuracy):
+        self.accuracies.append(accuracy)
+        if len(self.accuracies) == 1:
+            self.weighted_sum = accuracy
+            self.normalization_factor = [1] * len(accuracy)
+        else:
+            self.weighted_sum = [self.weighted_sum[i] * self.decay_rate + accuracy[i] for i in range(len(accuracy))]
+            self.normalization_factor = [self.normalization_factor[i] * self.decay_rate + 1 for i in range(len(accuracy))]
+
+    def get_weighted_average(self):
+        if not self.accuracies:
+            return None
+        return [self.weighted_sum[i] / self.normalization_factor[i] for i in range(len(self.weighted_sum))]
+
+    def get_all_accuracies(self):
+        return self.accuracies
+
 #shared conversions
 #Specifically, these functions are typically used by a couple files,
 #but I pull them here due to how general they are. 
