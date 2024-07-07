@@ -8,8 +8,8 @@ import pickle
 input_dir = './input'
 output_dir = './output'
 #The csvs are called from input and output,so pop up two places. poscars is from the model, so only pop up one
-poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), '../POSCAR'))
-csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), '../CSV'))
+poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), '../POSCAR/'))
+csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), '../CSV/'))
 
 import importlib.util
 
@@ -76,7 +76,6 @@ def process_directory(directory, is_input):
 
 # Process each directory
 def load_submodules():
-    global global_inputs, global_outputs
     process_directory(input_dir, is_input=True)
     process_directory(output_dir, is_input=False)
 
@@ -92,7 +91,7 @@ def unpackLine(str):
     return list(map(float, x))
 
 def preprocessPoscar(id):
-    poscar = open(poscars + "\\" + str(id) + ".POSCAR", "r").read()
+    poscar = open(poscars + "/" + str(id) + ".POSCAR", "r").read()
     inter = list(map(lambda a: a.strip(), poscar.split("\n")))
     return inter
 
@@ -110,10 +109,10 @@ class CSVLoader:
         self.load_csv()
 
     def load_csv(self):
-        with open(csvs + "\\" + self.file_name, mode='r', newline='') as csvfile:
+        with open(csvs + "/" + self.file_name, mode='r', newline='') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
-                if row and len(row) == 2:  # Ensure the row is not empty
+                if row:  # Ensure the row is not empty
                     self.data[row[0]] = row[1]
 
     def valid_ids(self):
@@ -122,35 +121,12 @@ class CSVLoader:
     def info(self, id):
         return self.data.get(id, None)
 
-class ExponentialDecayWeighting:
-    def __init__(self, decay_rate=0.9):
-        self.decay_rate = decay_rate
-        self.accuracies = []
-        self.weighted_sum = None
-        self.normalization_factor = None
-
-    def add_accuracy(self, accuracy):
-        self.accuracies.append(accuracy)
-        if len(self.accuracies) == 1:
-            self.weighted_sum = accuracy
-            self.normalization_factor = [1] * len(accuracy)
-        else:
-            self.weighted_sum = [self.weighted_sum[i] * self.decay_rate + accuracy[i] for i in range(len(accuracy))]
-            self.normalization_factor = [self.normalization_factor[i] * self.decay_rate + 1 for i in range(len(accuracy))]
-
-    def get_weighted_average(self):
-        if not self.accuracies:
-            return None
-        return [self.weighted_sum[i] / self.normalization_factor[i] for i in range(len(self.weighted_sum))]
-
-    def get_all_accuracies(self):
-        return self.accuracies
 
 #shared conversions
 #Specifically, these functions are typically used by a couple files,
 #but I pull them here due to how general they are. 
 relativeCoordinateLength = 5
-absoluteCoordinateLength = relativeCoordinateLength*2
+absoluteCoordinateLength = 2.0*5.0
 fourierFeaturesPeriodScale = 2.0
 
 def getRelativeCoordinates(val):
@@ -178,7 +154,7 @@ def getAbsoluteCoords(val):
             / initialPeriod
             *val
         ) 
-        for i in range(relativeCoordinateLength / 2.0)
+        for i in range(int(relativeCoordinateLength / 2.0))
     ]
 
 def flatten(nested_list):
@@ -256,7 +232,7 @@ def partition_dataset(validation_percentage, *arrays):
     return (*train_sets, *val_sets)
 
 
-# Consider adding in more customizability
+#Consider, adding in more customizeability
 def loss_fn(net, learning_type,learning_num, params, rng, inputs, targets):
     error = 0.0
     accuracy = jnp.array([])
@@ -277,8 +253,7 @@ def loss_fn(net, learning_type,learning_num, params, rng, inputs, targets):
     
     return error, accuracy
 
-# A function that returns a value from 0 to 1. 0 means the model is terrible and doesn't predict anything. 
-# 1 means the model always makes a perfect prediction.
+#Only these functions get called on
 def accuracy_fn(net, learning_type, learning_num, params, rng, inputs, targets):
     accuracy = jnp.array([])
     location = 0

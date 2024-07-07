@@ -133,7 +133,7 @@ install_dependencies
 
 for target_file in "$SCRIPT_DIR/COMPONENTS/"*; do
     if [[ "$(basename "$target_file")" != poscar_* ]]; then
-        experiment_dir="$SCRIPT_DIR/experiments/$(basename "$target_file" .py)"
+        experiment_dir="$SCRIPT_DIR/experiment_$(basename "$target_file" .py)"
         printf "\n\n\n\n\n  ${CYAN}Starting experiment: $(basename "$target_file")...${NC}\n"
         create_experiment_folder "$experiment_dir"
         extract_poscar "$experiment_dir"
