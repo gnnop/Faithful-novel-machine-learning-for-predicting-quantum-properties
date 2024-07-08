@@ -45,7 +45,21 @@ import time
 import matplotlib.pyplot as plt
 
 
-# Lists to hold the modules
+'''
+There are two types of data: POSCAR data and other data.
+
+POSCAR data comes from a POSCAR file (found in the POSCAR folder).
+Two global lists in the `includes` module store POSCAR data:
+* poscar_globals: data about the material. This is only the global axes of the material.
+* poscar_atomics: data about each atom contained by the material. This could encode each atoms' position or type or both.
+
+Other data can be an input (in the input/ folder) or an output (in the output/ folder). 
+All other data is global (i.e. it relates to the material as a whole).
+* global_inputs is the list of all inputs
+* global_outputs is the list of all ouputs.
+
+Each list is an unsorted list of modules
+'''
 poscar_globals = []
 poscar_atomics = []
 global_inputs = []
@@ -170,8 +184,8 @@ def getRelativeCoordinates(val):
         for i in range(int(relativeCoordinateLength))
     ]
 
-def getAbsoluteCoords(val):
-    initialPeriod = 2**int(absoluteCoordinateLength/2)
+def getAbsoluteCoords(val, maxval = 10):
+    initialPeriod = maxval
     return [
         math.sin(
             math.tau

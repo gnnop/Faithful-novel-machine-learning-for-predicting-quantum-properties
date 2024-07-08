@@ -22,7 +22,6 @@ target_directories = ['input', 'output']
 copy_file_to_directories('includes.py', target_directories)
 
 
-#Now the rest of the file.
 
 from includes import *
 load_submodules() #this is a function in includes.py that loads all the submodules.
@@ -68,51 +67,52 @@ if not exists("NNN.pickle"):
     #poscar files. The global embeddings are assumed to not exist for all elements.
     #The poscar_globals is just the cell size. The others should be obvious.
 
-    #Print the number of poscars total:
-    setOfAllPoscars = getSetOfPoscars()
-    print("There are", len(setOfAllPoscars), "poscars total.")
+    # Get the set of all materials with a POSCAR file available
+    set_of_poscars = getSetOfPoscars()
+    print("There are", len(set_of_poscars), "poscars total.")
 
-    ids = set.intersection(*flatten([i.valid_ids() for i in global_inputs] + [i.valid_ids() for i in global_outputs]))
+    # Get the set of all materials with all selected properties (e.g. space group, band gap)
+    common_valid_material_ids = set_of_poscars
+    for component in global_inputs + global_outputs:
+        common_valid_material_ids = set.intersection(common_valid_material_ids, component.valid_ids())
 
-    print("There are", len(ids), "poscars with all inputs and outputs.")
-
-    #There are how many poscars missing:
-    ids = set.intersection(ids, setOfAllPoscars)
-    print("There are", len(ids), "poscars with all inputs and outputs and all poscars.")
-
+    print("There are", len(common_valid_material_ids), "materials with all inputs and outputs.")
 
 
 
-    pi = []
-    pa = []
-    go = []
+
+    db_material_input_global = []
+    db_material_input_atomic = []
+    db_material_output = []
     go_types = [i.classifier() for i in global_outputs]
 
     # Grab the size of the first valid element in each global output
     go_nums = [len(i.info(list(i.valid_ids())[0])) for i in global_outputs] 
 
-    ii = 0
-    for i in ids:
+    skipped_atom_count = 0
+    for valid_material_id in common_valid_material_ids:
 
-        poscar = preprocessPoscar(i)
+        poscar = preprocessPoscar(valid_material_id)
+        if not poscar:
+            continue
 
         #fixed dimensional
-        pi_ = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs]
+        material_input_global = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(valid_material_id) for global_input in global_inputs]
 
         #variable dimensional
         #Note that we interleave the atomics
-        pa_ = [sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])]
+        material_input_atomic = [sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])]
 
 
         #fixed dimensional
-        go_ = []
+        material_output = []
         for func in range(len(global_outputs)):
-            go_.append(global_outputs[func].info(i))
+            material_output.append(global_outputs[func].info(valid_material_id))
 
         atom_names = atom_names_in_poscar(poscar)
 
         if len(atom_names) > hp["max_atoms"]:
-            ii += 1
+            skipped_atom_count += 1
             continue#store this
 
 
@@ -121,7 +121,7 @@ if not exists("NNN.pickle"):
         ordering = {atom: j for j, (atom, _) in enumerate(sorted_atoms)}
 
         # Create a mapping between each sublist in `pa_` and its corresponding atom
-        atom_pa_pairs = list(zip(atom_names, pa_))
+        atom_pa_pairs = list(zip(atom_names, material_input_atomic))
 
         # Sort the sublists based on the atom frequencies stored in the `ordering` dictionary
         atom_pa_pairs_sorted = sorted(atom_pa_pairs, key=lambda x: ordering[x[0]])
@@ -133,16 +133,16 @@ if not exists("NNN.pickle"):
         pa_sorted = pa_sorted + [[0. for _ in range(len(pa_sorted[0]))] for _ in range(hp["max_atoms"] - len(pa_sorted))]
 
 
-        pi.append(flatten(pi_))
-        pa.append(flatten(pa_sorted))
-        go.append(flatten(go_))
+        db_material_input_global.append(flatten(material_input_global))
+        db_material_input_atomic.append(flatten(pa_sorted))
+        db_material_output.append(flatten(material_output))
 
-    print(ii, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
+    print(skipped_atom_count, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
 
     with open("NNN.pickle", "wb") as f:
         pickle.dump({
-            "data": np.concatenate((np.array(pa), np.array(pi)), axis=1),
-            "labels": np.array(go),
+            "data": np.concatenate((np.array(db_material_input_atomic), np.array(db_material_input_global)), axis=1),
+            "labels": np.array(db_material_output),
             "labels_types": go_types,
             "labels_nums": go_nums
         },f)
@@ -205,9 +205,9 @@ with open("NNN.pickle", "rb") as f:
 
     try:
         for epoch in range(num_epochs):
-            for i in range(num_batches):
-                batch_rng = jax.random.fold_in(train_rng, i)
-                batch_start, batch_end = i * hp["batch_size"], (i + 1) * hp["batch_size"]
+            for valid_material_id in range(num_batches):
+                batch_rng = jax.random.fold_in(train_rng, valid_material_id)
+                batch_start, batch_end = valid_material_id * hp["batch_size"], (valid_material_id + 1) * hp["batch_size"]
                 X_batch = X_train[batch_start:batch_end]
                 y_batch = y_train[batch_start:batch_end]
                 #print all the types for debug purposes:

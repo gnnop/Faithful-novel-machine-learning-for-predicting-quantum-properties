@@ -22,3 +22,5 @@ def info(poscar):
         arr = [0.0]*118
         arr[mendeleev.element(atoms[atomType]).atomic_number-1] = 1.0
         nodesArray.append(arr)
+
+    return nodesArray

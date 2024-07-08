@@ -13,4 +13,4 @@ def info(id):
     v = csv_loader.info(id)
     if v is None:
         return None
-    return -1.0 * v
+    return v
