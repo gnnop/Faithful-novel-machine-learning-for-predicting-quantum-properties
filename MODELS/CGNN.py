@@ -1,5 +1,8 @@
 import sys, os, shutil
 
+if not __name__ == '__main__':
+  os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
 #standard thing that makes sure all dependencies resolve.
 def copy_file_to_directories(filename, target_dirs):
     source_path = os.path.abspath(filename)
@@ -17,8 +20,8 @@ def copy_file_to_directories(filename, target_dirs):
 
 # Define the relative paths of the target directories
 target_directories = ['.', 'input', 'output']
-copy_file_to_directories('../includes.py', target_directories)
-
+if __name__ == '__main__':
+    copy_file_to_directories('../includes.py', target_directories)
 
 #Now the rest of the file.
 
@@ -30,7 +33,8 @@ load_submodules() #this is a function in includes.py that loads all the submodul
 hp = {
     "dropoutRate": 0.1,
     "max_atoms": 40,
-    "batch_size": 64,#This is now baked into the preprocessing
+    "batch_size": 8,#This is now baked into the preprocessing
+    "num_proc": 12,#This is the number of processes used in preprocessing
 }
 
 def GraphConvolution(update_node_fn: Callable,
@@ -109,11 +113,11 @@ def edge_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
   """Edge update function for graph net."""
   net = hk.Sequential(
       [
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(128)])
   return net(feats)
 
@@ -122,11 +126,10 @@ def node_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
   """Node update function for graph net."""
   net = hk.Sequential(
       [
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(128)])
   return net(feats)
 # end edge_update_fn
@@ -137,17 +140,17 @@ def update_global_fn(feats: jnp.ndarray) -> jnp.ndarray:
   # MUTAG is a binary classification task, so output pos neg logits.
   net = hk.Sequential(
       [
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(256), jax.nn.relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(128)])
   return net(feats)
 # end update_global_fn
 
-def net_fn(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
+def net_fn(graph, is_training=False, dropout_rate=0):
   global globals
 
   #The shape of the graph is wrong.
@@ -163,34 +166,34 @@ def net_fn(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
       hk.Linear(128)]),
     hk.Sequential(
       [
-      hk.Linear(512), jax.nn.relu,
-      hk.Linear(512), jax.nn.relu,
-      hk.Linear(512), jax.nn.relu,
-      hk.Linear(256), jax.nn.relu,
-      hk.Linear(128), jax.nn.relu,
+      hk.Linear(512), jax.nn.leaky_relu,
+      hk.Linear(512), jax.nn.leaky_relu,
+      hk.Linear(512), jax.nn.leaky_relu,
+      hk.Linear(256), jax.nn.leaky_relu,
+      hk.Linear(128), jax.nn.leaky_relu,
       hk.Linear(globals["labelSize"])]))
 
   embedder = jraph.GraphMapFeatures(
       hk.Sequential(
       [
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
        hk.Linear(512)]), 
       hk.Sequential(
       [
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
        hk.Linear(512)]), 
       hk.Sequential(
       [
-       hk.Linear(256), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
-       hk.Linear(512), jax.nn.relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
+       hk.Linear(512), jax.nn.leaky_relu,
        hk.Linear(512)]))
   net = jraph.GraphNetwork(
       update_node_fn=node_update_fn,
@@ -244,14 +247,11 @@ def pad_graph_to_nearest_power_of_two(
   return jraph.pad_with_graphs(graphs_tuple, pad_nodes_to, pad_edges_to,
                                pad_graphs_to)
 
-def extractGraph(atomic, positional_encoding, absolute_position, glob, label_size, axes):
-    global globals
-    global tots
-
+def extractGraph(atomic_encoding, absolute_position, glob, label_size, axes):
     globalData = [0.0]*(len(glob) + label_size)
     globalData[0:len(glob)] = glob
 
-    nodesArray = []
+    nodesArray = atomic_encoding
 
     
     #Now we do an n^2 operation on the atoms:
@@ -283,132 +283,156 @@ def extractGraph(atomic, positional_encoding, absolute_position, glob, label_siz
         n_node=jnp.array([len(nodesArray)]),
         n_edge=jnp.array([len(senderArray)]))
 
-if not exists("CGNN.pickle"):
+def getGlobalDataVector(poscar):
+    return np.array([unpackLine(poscar[2]), unpackLine(poscar[3]), unpackLine(poscar[4])])
 
-    #the atomic embeddings are assumed to be both input and available for all
-    #poscar files. The global embeddings are assumed to not exist for all elements.
-    #The poscar_globals is just the cell size. The others should be obvious.
+def processGraphBatch(graph):
+  poscar = preprocessPoscar(graph)
+  numbs = poscar[6].split()
 
-    #Print the number of poscars total:
-    setOfAllPoscars = getSetOfPoscars()
-    print("There are", len(setOfAllPoscars), "poscars total.")
+  total = 0
+  for ii in range(len(numbs)):
+    total+=int(numbs[ii])
+    numbs[ii] = total
 
-    ids = set.intersection(*flatten([i.valid_ids() for i in global_inputs] + [i.valid_ids() for i in global_outputs]))
+  #fixed dimensional
+  axes_ = getGlobalDataVector(poscar)
+  pi_ = flatten([poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs])
+  inputs_ = np.array([sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])])
+  positions_ = [np.matmul(unpackLine(poscar[8+ii]), axes_) for ii in range(total)]
 
-    print("There are", len(ids), "poscars with all inputs and outputs.")
+  #fixed dimensional
+  go_ = []
+  for func in range(len(global_outputs)):
+    go_.append(global_outputs[func].info(graph))
+  go_ = sum(go_, [])
 
-    #There are how many poscars missing:
-    ids = set.intersection(ids, setOfAllPoscars)
-    print("There are", len(ids), "poscars with all inputs and outputs and all poscars.")
+  graph_ = extractGraph(inputs_, positions_, pi_, len(go_), axes_)
 
-
-    data = []
-    labels = []
-    go_types = [i.classifier() for i in global_outputs]
-    go_nums = [len(i.info(1)) for i in global_outputs]
-
-    batch_X = []
-    batch_y = []
-    for i in ids:
-
-        poscar = preprocessPoscar(i)
-
-        #fixed dimensional
-        pi_ = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs]
-
-        #fixed dimensional
-        go_ = []
-        for func in range(len(global_outputs)):
-            go_.append(global_outputs[func].info(i))
-
-        extractGraph()
-
-        batch_X.append([pi_, pa_, go_])
-        batch_y.append(go_)
-
-        if len(batch_X) == hp["batch_size"]:
-            print("Batch size reached, processing batch")
-            data.append(pad_graph_to_nearest_power_of_two(jraph.batch(batch_X)))
-            labels.append(jnp.array(batch_y))
-            batch_X = []
-            batch_y = []
-
-    print(ii, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
-
-    with open("CGNN.pickle", "wb") as f:
-        pickle.dump({
-            "data": data,
-            "labels": labels,
-            "labels_types": go_types,
-            "labels_nums": go_nums
-        },f)
-
-
-with open("CGNN.pickle", "rb") as f:
-    data = pickle.load(f)
-    inputs = data["data"]
-    labels = data["labels"]
-    label_types = data["labels_types"]
-    label_nums = data["labels_nums"]
-
-    output_dim = sum(label_nums)
-
-
-    # Split the data into training and validation sets
-    ##X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
-    X_train, y_train, X_val, y_val = partition_dataset(0.1, inputs, labels)
-
-    #Now, attempt to load the model CGNN.params if it exists, otherwise init with haiku
-    # Initialize the network
-    net = hk.transform(net_fn)
-    rng = jax.random.PRNGKey(0x09F911029D74E35BD84156C5635688C0 % 2**32)
-    init_rng, train_rng = jax.random.split(rng)
-    params = net.init(init_rng, X_train[0], is_training=True)
-    if exists("CGNN.params"):
-        with open("CGNN.params", "rb") as f:
-            params = pickle.load(f)
-        print("Loaded model from CGNN.params")
-
-    
-    # Create the optimizer
-    # Learning rate schedule: linear ramp-up and then constant
-    num_epochs = 1000
-    num_batches = X_train.shape[0] // hp["batch_size"]
-    ramp_up_epochs = 50  # Number of epochs to linearly ramp up the learning rate
-    total_ramp_up_steps = ramp_up_epochs * num_batches
-    lr_schedule = optax.linear_schedule(init_value=1e-5, 
-                                        end_value =1e-3, 
-                                        transition_steps=total_ramp_up_steps)
-
-    # Optimizer
-    optimizer = optax.noisy_sgd(learning_rate=lr_schedule)
-    opt_state = optimizer.init(params)
-
-    compute_loss_fn = jax.jit(functools.partial(loss_fn, net,label_types,label_nums))
-    compute_accuracy_fn = jax.jit(functools.partial(accuracy_fn, net,label_types,label_nums))
+  return graph_, go_
 
 
 
-    try:
-        for epoch in range(num_epochs):
-            for i in range(num_batches):
-                batch_rng = jax.random.fold_in(train_rng, i)
-                #print all the types for debug purposes:
+if __name__ == '__main__':
+  if not exists("CGNN.pickle"):
 
-                (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, X_batch[i], y_batch[i])
-                updates, opt_state = optimizer.update(grad, opt_state)
-                params = optax.apply_updates(params, updates)
-            
+      #the atomic embeddings are assumed to be both input and available for all
+      #poscar files. The global embeddings are assumed to not exist for all elements.
+      #The poscar_globals is just the cell size. The others should be obvious.
 
-            # Save the training and validation loss
-            train_accuracy = compute_accuracy_fn(params, batch_rng, X_train, y_train)
-            val_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
-            print(f"Epoch {epoch}, Training accuracy: {train_accuracy}, Validation accuracy: {val_accuracy}")
-    except KeyboardInterrupt:
-        with open("CGNN.params", "wb") as f:
-            pickle.dump(params, f)
-        print("Keyboard interrupt, saving model")
-    
-    with open("CGNN.params", "wb") as f:
-        pickle.dump(params, f)
-    print("Done training")
+      #Print the number of poscars total:
+      setOfAllPoscars = getSetOfPoscars()
+      print("There are", len(setOfAllPoscars), "poscars total.")
+
+      ids = set.intersection(*flatten([i.valid_ids() for i in global_inputs] + [i.valid_ids() for i in global_outputs]))
+
+      print("There are", len(ids), "poscars with all inputs and outputs.")
+
+      #There are how many poscars missing:
+      ids = set.intersection(ids, setOfAllPoscars)
+      print("There are", len(ids), "poscars with all inputs and outputs and all poscars.")
+
+
+      data = []
+      labels = []
+      go_types = [i.classifier() for i in global_outputs]
+      go_nums = [len(i.info(str(1))) for i in global_outputs]
+
+      def accumulate_data(args):
+        global data
+        global labels
+
+        #if len(data) % 100 == 0:
+        print(len(data), "batches processed")
+          
+        data.append(args[0])
+        labels.append(args[1])
+
+      pool = Pool(processes=hp["num_proc"])
+      #Was going to batch the graphs, but padding them is incredibly memory intensive
+
+      for index in list(ids):
+          pool.apply_async( processGraphBatch, args=(index,) , callback=accumulate_data )
+
+      pool.close()
+      pool.join()
+
+      with open("CGNN.pickle", "wb") as f:
+          pickle.dump({
+              "data": data,
+              "labels": labels,
+              "labels_types": go_types,
+              "labels_nums": go_nums
+          },f)
+
+
+  with open("CGNN.pickle", "rb") as f:
+      data = pickle.load(f)
+      inputs = data["data"]
+      labels = data["labels"]
+      label_types = data["labels_types"]
+      label_nums = data["labels_nums"]
+
+      output_dim = sum(label_nums)
+
+
+      # Split the data into training and validation sets
+      ##X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
+      X_train, y_train, X_val, y_val = partition_dataset(0.1, inputs, labels)
+
+      #Now, attempt to load the model CGNN.params if it exists, otherwise init with haiku
+      # Initialize the network
+      net = hk.transform(net_fn)
+      rng = jax.random.PRNGKey(0x09F911029D74E35BD84156C5635688C0 % 2**32)
+      init_rng, train_rng = jax.random.split(rng)
+      params = net.init(init_rng, X_train[0], is_training=True)
+      if exists("CGNN.params"):
+          with open("CGNN.params", "rb") as f:
+              params = pickle.load(f)
+          print("Loaded model from CGNN.params")
+
+      
+      # Create the optimizer
+      # Learning rate schedule: linear ramp-up and then constant
+      num_epochs = 1000
+      num_batches = len(X_train) // hp["batch_size"]
+      ramp_up_epochs = 5  # Number of epochs to linearly ramp up the learning rate
+      total_ramp_up_steps = ramp_up_epochs * num_batches
+      lr_schedule = optax.linear_schedule(init_value=1e-5, 
+                                          end_value =1e-3, 
+                                          transition_steps=total_ramp_up_steps)
+
+      # Optimizer
+      optimizer = optax.noisy_sgd(learning_rate=lr_schedule)
+      opt_state = optimizer.init(params)
+
+      compute_loss_fn = jax.jit(functools.partial(loss_fn, net,label_types,label_nums))
+      compute_accuracy_fn = jax.jit(functools.partial(accuracy_fn, net,label_types,label_nums))
+
+
+
+      try:
+          training_acc = ExponentialDecayWeighting(0.99)
+          for epoch in range(num_epochs):
+              for i in range(num_batches):
+                  batch_rng = jax.random.fold_in(train_rng, i)
+                  batch_start, batch_end = i * hp["batch_size"], (i + 1) * hp["batch_size"]
+                  X_batch = X_train[batch_start:batch_end]
+                  y_batch = y_train[batch_start:batch_end]
+
+                  (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, pad_graph_to_nearest_power_of_two(jraph.batch(X_batch)), y_batch)
+                  updates, opt_state = optimizer.update(grad, opt_state)
+                  params = optax.apply_updates(params, updates)
+                  training_acc.add_accuracy(accs)
+                  print("training accuracy: ", training_acc.get_weighted_average())
+              
+
+              # Save the training and validation loss - just validation, not implemented yet
+      except KeyboardInterrupt:
+          with open("CGNN.params", "wb") as f:
+              pickle.dump(params, f)
+          print("Keyboard interrupt, saving model")
+      
+      with open("CGNN.params", "wb") as f:
+          pickle.dump(params, f)
+      print("Done training")
