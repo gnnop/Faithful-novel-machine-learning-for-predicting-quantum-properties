@@ -30,9 +30,9 @@ load_submodules() #this is a function in includes.py that loads all the submodul
 # hyperparameters
 hp = {
     "layer_size" : None, # number of perceptrons in a layer. If None provided, automatically determined by the number of inputs
-    "max_atoms": 40,
     "batch_size": 1000,
     "dropout_rate": 0.1,
+    "atom_bin_sizes": (120, 80, 60, 40, 40, 40)
 }
 
 
@@ -95,49 +95,71 @@ if not exists("NNN.pickle"):
         poscar = preprocessPoscar(valid_material_id)
         if not poscar:
             continue
-
-        #fixed dimensional
-        material_input_global = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(valid_material_id) for global_input in global_inputs]
-
-        #variable dimensional
-        #Note that we interleave the atomics
+        
+        # Collect material inputs
+        material_input_global =  [poscar_global.info(poscar) for poscar_global in poscar_globals]
+        material_input_global += [global_input.info(valid_material_id) for global_input in global_inputs]
         material_input_atomic = [sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])]
 
 
-        #fixed dimensional
+        # Collect material outputs
         material_output = []
         for func in range(len(global_outputs)):
             material_output.append(global_outputs[func].info(valid_material_id))
 
         atom_names = atom_names_in_poscar(poscar)
 
-        if len(atom_names) > hp["max_atoms"]:
-            skipped_atom_count += 1
-            continue#store this
-
 
         atom_counts = Counter(atom_names)
         sorted_atoms = sorted(atom_counts.items(), key=lambda x: (-x[1], x[0]))
         ordering = {atom: j for j, (atom, _) in enumerate(sorted_atoms)}
 
-        # Create a mapping between each sublist in `pa_` and its corresponding atom
+        # Create a mapping between each sublist in `material_input_atomic` and its corresponding atom
         atom_pa_pairs = list(zip(atom_names, material_input_atomic))
 
         # Sort the sublists based on the atom frequencies stored in the `ordering` dictionary
         atom_pa_pairs_sorted = sorted(atom_pa_pairs, key=lambda x: ordering[x[0]])
 
-        # Extract the sorted pa_
-        pa_sorted = [pair[1] for pair in atom_pa_pairs_sorted]
+        # Grab one set of atom properties of each atom type
+        unique_atoms = {}
+        for atom_string, atom_list in atom_pa_pairs_sorted:
+            if atom_string not in unique_atoms:
+                unique_atoms[atom_string] = atom_list
+        unique_atom_tuples_sorted_by_count = [(atom_string, unique_atoms[atom_string], atom_counts[atom_string]) for atom_string in unique_atoms]
 
-        # Now, buff `pa_sorted` out with sublists of the same length as all the other sublists in it until its length max_atoms
-        pa_sorted = pa_sorted + [[0. for _ in range(len(pa_sorted[0]))] for _ in range(hp["max_atoms"] - len(pa_sorted))]
+        # pad the sorted atom list to match the number of atom bins
+        if len(unique_atom_tuples_sorted_by_count) > len(hp["atom_bin_sizes"]):
+            skipped_atom_count += 1
+            continue
+        while len(unique_atom_tuples_sorted_by_count) < len(hp["atom_bin_sizes"]):
+            unique_atom_tuples_sorted_by_count.append(("none", [0]*len(unique_atom_tuples_sorted_by_count[0][1]), 0))
+        
+        # create bins
+        processed_atoms = []
+        should_skip_atom = False
+        for i in range(len(unique_atom_tuples_sorted_by_count)):
+            element = unique_atom_tuples_sorted_by_count[i]
+            if element[2] > hp["atom_bin_sizes"][i]:
+                should_skip_atom = True
+                break
+            processed_atoms.append(
+                [
+                    element[1],
+                    [1]*element[2] + [0]*(hp["atom_bin_sizes"][i]-element[2])
+                ]
+            )
+        if should_skip_atom:
+            skipped_atom_count += 1
+            continue
+
+
 
 
         db_material_input_global.append(flatten(material_input_global))
-        db_material_input_atomic.append(flatten(pa_sorted))
+        db_material_input_atomic.append(flatten(processed_atoms))
         db_material_output.append(flatten(material_output))
 
-    print(skipped_atom_count, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
+    print(skipped_atom_count, "poscars were skipped due to binning issues.")
 
     with open("NNN.pickle", "wb") as f:
         pickle.dump({
