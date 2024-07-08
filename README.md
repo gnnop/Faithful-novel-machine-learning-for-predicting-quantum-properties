@@ -27,7 +27,7 @@ To run an experiment, follow these steps:
    - Every time this project is used in a new terminal, run `conda activate mmp` to activate this new environment before starting any experiments.
 
 1. **Create a Folder for the Experiment**
-   - Make a new directory for your experiment.
+   - Make a new directory for your experiment. It must be directly below the repository directory.
 
 2. **Select a Model**
    - Copy a model file from the `MODELS` folder into your experiment directory.

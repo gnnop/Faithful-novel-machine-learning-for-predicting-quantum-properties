@@ -8,8 +8,8 @@ import pickle
 input_dir = './input'
 output_dir = './output'
 #The csvs are called from input and output,so pop up two places. poscars is from the model, so only pop up one
-poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), '..\\POSCAR\\'))
-csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), '..\\CSV\\'))
+poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), '../POSCAR/'))
+csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), '../CSV/'))
 
 import importlib.util
 
@@ -45,7 +45,21 @@ import time
 import matplotlib.pyplot as plt
 
 
-# Lists to hold the modules
+'''
+There are two types of data: POSCAR data and other data.
+
+POSCAR data comes from a POSCAR file (found in the POSCAR folder).
+Two global lists in the `includes` module store POSCAR data:
+* poscar_globals: data about the material. This is only the global axes of the material.
+* poscar_atomics: data about each atom contained by the material. This could encode each atoms' position or type or both.
+
+Other data can be an input (in the input/ folder) or an output (in the output/ folder). 
+All other data is global (i.e. it relates to the material as a whole).
+* global_inputs is the list of all inputs
+* global_outputs is the list of all ouputs.
+
+Each list is an unsorted list of modules
+'''
 poscar_globals = []
 poscar_atomics = []
 global_inputs = []
@@ -91,7 +105,7 @@ def unpackLine(str):
     return list(map(float, x))
 
 def preprocessPoscar(id):
-    poscar = open(poscars + "\\" + str(id) + ".POSCAR", "r").read()
+    poscar = open(poscars + "/" + str(id) + ".POSCAR", "r").read()
     inter = list(map(lambda a: a.strip(), poscar.split("\n")))
     return inter
 
@@ -109,7 +123,7 @@ class CSVLoader:
         self.load_csv()
 
     def load_csv(self):
-        with open(csvs + "\\" + self.file_name, mode='r', newline='') as csvfile:
+        with open(csvs + "/" + self.file_name, mode='r', newline='') as csvfile:
             reader = csv.reader(csvfile)
             for row in reader:
                 if row:  # Ensure the row is not empty
@@ -120,6 +134,8 @@ class CSVLoader:
 
     def info(self, id):
         return self.data.get(id, None)
+
+
 
 class ExponentialDecayWeighting:
     def __init__(self, decay_rate=0.9):
@@ -168,8 +184,8 @@ def getRelativeCoordinates(val):
         for i in range(int(relativeCoordinateLength))
     ]
 
-def getAbsoluteCoords(val):
-    initialPeriod = 2**int(absoluteCoordinateLength/2)
+def getAbsoluteCoords(val, maxval = 10):
+    initialPeriod = maxval
     return [
         math.sin(
             math.tau

@@ -22,7 +22,6 @@ target_directories = ['input', 'output']
 copy_file_to_directories('includes.py', target_directories)
 
 
-#Now the rest of the file.
 
 from includes import *
 load_submodules() #this is a function in includes.py that loads all the submodules.
@@ -30,32 +29,28 @@ load_submodules() #this is a function in includes.py that loads all the submodul
 
 # hyperparameters
 hp = {
-    "dropoutRate": 0.1,
-    "max_atoms": 40,
-    "batch_size": 64,
+    "layer_size" : None, # number of perceptrons in a layer. If None provided, automatically determined by the number of inputs
+    "batch_size": 1000,
+    "dropout_rate": 0.1,
+    "atom_bin_sizes": (120, 80, 60, 40, 40, 40)
 }
 
 
 
-# Define the neural network with dropout
-def net_fn(batch, is_training=False, dropout_rate=0):
+# Define the neural network
+def net_fn(batch, is_training=False):
     mlp = hk.Sequential([
         # fully connected layer with dropout
-        hk.Linear(3000), jax.nn.relu,
-        # Apply dropout only during training, with corrected argument order
-        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=dropout_rate) if is_training else x, 
+        hk.Linear(hp["layer_size"]), jax.nn.relu,
+        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,  
 
         # fully connected layer with dropout
-        hk.Linear(2000), jax.nn.relu,
-        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=dropout_rate) if is_training else x,       
+        hk.Linear(hp["layer_size"]), jax.nn.relu, 
+        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,  
 
         # fully connected layer with dropout
-        hk.Linear(1000), jax.nn.relu,
-        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=dropout_rate) if is_training else x,  
-        
-        # fully connected layer
-        hk.Linear(100), jax.nn.relu,
-        # lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=dropout_rate) if is_training else x, 
+        hk.Linear(hp["layer_size"]), jax.nn.relu,
+        lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,  
         
         hk.Linear(output_dim)  # Assuming full set of categories
     ])
@@ -72,79 +67,104 @@ if not exists("NNN.pickle"):
     #poscar files. The global embeddings are assumed to not exist for all elements.
     #The poscar_globals is just the cell size. The others should be obvious.
 
-    #Print the number of poscars total:
-    setOfAllPoscars = getSetOfPoscars()
-    print("There are", len(setOfAllPoscars), "poscars total.")
+    # Get the set of all materials with a POSCAR file available
+    set_of_poscars = getSetOfPoscars()
+    print("There are", len(set_of_poscars), "poscars total.")
 
-    ids = set.intersection(*flatten([i.valid_ids() for i in global_inputs] + [i.valid_ids() for i in global_outputs]))
+    # Get the set of all materials with all selected properties (e.g. space group, band gap)
+    common_valid_material_ids = set_of_poscars
+    for component in global_inputs + global_outputs:
+        common_valid_material_ids = set.intersection(common_valid_material_ids, component.valid_ids())
 
-    print("There are", len(ids), "poscars with all inputs and outputs.")
-
-    #There are how many poscars missing:
-    ids = set.intersection(ids, setOfAllPoscars)
-    print("There are", len(ids), "poscars with all inputs and outputs and all poscars.")
-
+    print("There are", len(common_valid_material_ids), "materials with all inputs and outputs.")
 
 
 
-    pi = []
-    pa = []
-    go = []
+
+    db_material_input_global = []
+    db_material_input_atomic = []
+    db_material_output = []
     go_types = [i.classifier() for i in global_outputs]
-    go_nums = [len(i.info(str(1))) for i in global_outputs]
 
-    ii = 0
-    for i in ids:
+    # Grab the size of the first valid element in each global output
+    go_nums = [len(i.info(list(i.valid_ids())[0])) for i in global_outputs] 
 
-        poscar = preprocessPoscar(i)
+    skipped_atom_count = 0
+    for valid_material_id in common_valid_material_ids:
 
-        #fixed dimensional
-        pi_ = [poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs]
+        poscar = preprocessPoscar(valid_material_id)
+        if not poscar:
+            continue
+        
+        # Collect material inputs
+        material_input_global =  [poscar_global.info(poscar) for poscar_global in poscar_globals]
+        material_input_global += [global_input.info(valid_material_id) for global_input in global_inputs]
+        material_input_atomic = [sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])]
 
-        #variable dimensional
-        #Note that we interleave the atomics
-        pa_ = [sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])]
 
-
-        #fixed dimensional
-        go_ = []
+        # Collect material outputs
+        material_output = []
         for func in range(len(global_outputs)):
-            go_.append(global_outputs[func].info(i))
+            material_output.append(global_outputs[func].info(valid_material_id))
 
         atom_names = atom_names_in_poscar(poscar)
-
-        if len(atom_names) > hp["max_atoms"]:
-            ii += 1
-            continue#store this
 
 
         atom_counts = Counter(atom_names)
         sorted_atoms = sorted(atom_counts.items(), key=lambda x: (-x[1], x[0]))
         ordering = {atom: j for j, (atom, _) in enumerate(sorted_atoms)}
 
-        # Create a mapping between each sublist in `pa_` and its corresponding atom
-        atom_pa_pairs = list(zip(atom_names, pa_))
+        # Create a mapping between each sublist in `material_input_atomic` and its corresponding atom
+        atom_pa_pairs = list(zip(atom_names, material_input_atomic))
 
         # Sort the sublists based on the atom frequencies stored in the `ordering` dictionary
         atom_pa_pairs_sorted = sorted(atom_pa_pairs, key=lambda x: ordering[x[0]])
 
-        # Extract the sorted pa_
-        pa_sorted = [pair[1] for pair in atom_pa_pairs_sorted]
+        # Grab one set of atom properties of each atom type
+        unique_atoms = {}
+        for atom_string, atom_list in atom_pa_pairs_sorted:
+            if atom_string not in unique_atoms:
+                unique_atoms[atom_string] = atom_list
+        unique_atom_tuples_sorted_by_count = [(atom_string, unique_atoms[atom_string], atom_counts[atom_string]) for atom_string in unique_atoms]
 
-        # Now, buff `pa_sorted` out with sublists of the same length as all the other sublists in it until its length max_atoms
-        pa_sorted = pa_sorted + [[0. for _ in range(len(pa_sorted[0]))] for _ in range(hp["max_atoms"] - len(pa_sorted))]
+        # pad the sorted atom list to match the number of atom bins
+        if len(unique_atom_tuples_sorted_by_count) > len(hp["atom_bin_sizes"]):
+            skipped_atom_count += 1
+            continue
+        while len(unique_atom_tuples_sorted_by_count) < len(hp["atom_bin_sizes"]):
+            unique_atom_tuples_sorted_by_count.append(("none", [0]*len(unique_atom_tuples_sorted_by_count[0][1]), 0))
+        
+        # create bins
+        processed_atoms = []
+        should_skip_atom = False
+        for i in range(len(unique_atom_tuples_sorted_by_count)):
+            element = unique_atom_tuples_sorted_by_count[i]
+            if element[2] > hp["atom_bin_sizes"][i]:
+                should_skip_atom = True
+                break
+            processed_atoms.append(
+                [
+                    element[1],
+                    [1]*element[2] + [0]*(hp["atom_bin_sizes"][i]-element[2])
+                ]
+            )
+        if should_skip_atom:
+            skipped_atom_count += 1
+            continue
 
 
-        pi.append(flatten(pi_))
-        pa.append(flatten(pa_sorted))
-        go.append(flatten(go_))
 
-    print(ii, "poscars were skipped due to having more than", hp["max_atoms"], "atoms.")
+
+        db_material_input_global.append(flatten(material_input_global))
+        db_material_input_atomic.append(flatten(processed_atoms))
+        db_material_output.append(flatten(material_output))
+
+    print(skipped_atom_count, "poscars were skipped due to binning issues.")
 
     with open("NNN.pickle", "wb") as f:
         pickle.dump({
-            "data": np.concatenate((np.array(pa), np.array(pi)), axis=1),
-            "labels": np.array(go),
+            "data": np.concatenate((np.array(db_material_input_atomic), np.array(db_material_input_global)), axis=1),
+            "labels": np.array(db_material_output),
             "labels_types": go_types,
             "labels_nums": go_nums
         },f)
@@ -161,13 +181,23 @@ with open("NNN.pickle", "rb") as f:
 
 
     # Split the data into training and validation sets
-    ##X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
     X_train, y_train, X_val, y_val = partition_dataset(0.1, inputs, labels)
 
-    #Now, attempt to load the model NNN.params if it exists, otherwise init with haiku
+    # Automatically adjust the size of the NN if requested by the user (by setting "layer_size" to None)
+    if not hp["layer_size"]:
+        hp["layer_size"] = len(X_train[0])
+
+    print(len(X_train))
+    print(len(X_train[0]))
+    print(len(y_train))
+    print(len(y_train[0]))
+    print(X_train[0])
+    print(y_train[0])
+
+    # Now, attempt to load the model NNN.params if it exists, otherwise init with haiku
     # Initialize the network
     net = hk.transform(net_fn)
-    rng = jax.random.PRNGKey(0x09F911029D74E35BD84156C5635688C0 % 2**32)
+    rng = jax.random.PRNGKey(0x4d696361684d756e64790a % 2**32)
     init_rng, train_rng = jax.random.split(rng)
     params = net.init(init_rng, X_train[0], is_training=True)
     if exists("NNN.params"):
@@ -178,12 +208,12 @@ with open("NNN.pickle", "rb") as f:
     
     # Create the optimizer
     # Learning rate schedule: linear ramp-up and then constant
-    num_epochs = 1000
+    num_epochs = 5000
     num_batches = X_train.shape[0] // hp["batch_size"]
-    ramp_up_epochs = 50  # Number of epochs to linearly ramp up the learning rate
+    ramp_up_epochs = 500  # Number of epochs to linearly ramp up the learning rate
     total_ramp_up_steps = ramp_up_epochs * num_batches
-    lr_schedule = optax.linear_schedule(init_value=1e-5, 
-                                        end_value =1e-3, 
+    lr_schedule = optax.linear_schedule(init_value=1e-6, 
+                                        end_value =1e-5, 
                                         transition_steps=total_ramp_up_steps)
 
     # Optimizer
@@ -197,9 +227,9 @@ with open("NNN.pickle", "rb") as f:
 
     try:
         for epoch in range(num_epochs):
-            for i in range(num_batches):
-                batch_rng = jax.random.fold_in(train_rng, i)
-                batch_start, batch_end = i * hp["batch_size"], (i + 1) * hp["batch_size"]
+            for valid_material_id in range(num_batches):
+                batch_rng = jax.random.fold_in(train_rng, valid_material_id)
+                batch_start, batch_end = valid_material_id * hp["batch_size"], (valid_material_id + 1) * hp["batch_size"]
                 X_batch = X_train[batch_start:batch_end]
                 y_batch = y_train[batch_start:batch_end]
                 #print all the types for debug purposes:
