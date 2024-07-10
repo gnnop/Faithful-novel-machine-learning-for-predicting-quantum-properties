@@ -303,7 +303,7 @@ def processGraphBatch(graph):
 
   #fixed dimensional
   axes_ = getGlobalDataVector(poscar)
-  pi_ = flatten([poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(i) for global_input in global_inputs])
+  pi_ = flatten([poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(graph) for global_input in global_inputs])
   inputs_ = np.array([sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])])
   positions_ = [np.matmul(unpackLine(poscar[8+ii]), axes_) for ii in range(total)]
 
