@@ -12,4 +12,4 @@ def valid_ids():
 
 def info(id):
     temp = csv_loader.info(id)
-    return np.unpackbits(np.array([int(temp)],dtype=np.uint8))
+    return np.unpackbits(np.array([int(temp)],dtype=np.uint8)).tolist()
