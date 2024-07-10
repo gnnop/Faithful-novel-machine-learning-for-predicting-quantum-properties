@@ -171,7 +171,7 @@ def net_fn(graph, is_training=False, dropout_rate=0):
       hk.Linear(512), jax.nn.leaky_relu,
       hk.Linear(256), jax.nn.leaky_relu,
       hk.Linear(128), jax.nn.leaky_relu,
-      hk.Linear(globals["labelSize"])]))
+      hk.Linear(output_dim)]))
 
   embedder = jraph.GraphMapFeatures(
       hk.Sequential(
@@ -195,17 +195,23 @@ def net_fn(graph, is_training=False, dropout_rate=0):
        hk.Linear(512), jax.nn.leaky_relu,
        hk.Linear(512), jax.nn.leaky_relu,
        hk.Linear(512)]))
-  net = jraph.GraphNetwork(
+  net1 = jraph.GraphNetwork(
       update_node_fn=node_update_fn,
       update_edge_fn=edge_update_fn,
       update_global_fn=update_global_fn)
   
+  """
+  net2 = jraph.GraphNetwork(
+    update_node_fn=node_update_fn,
+    update_edge_fn=edge_update_fn,
+    update_global_fn=update_global_fn)"""
+  
   x1 = embedder(graph)
-  x2 = net(x1)
+  x2 = net1(x1)
   x3 = collector(x2)
 
   #return graph
-  return x3.globals * jraph.get_graph_padding_mask(x3)#Need to incorporate output dim somehow.
+  return x3
 
 output_dim = 0#initialize before calling the network
 
@@ -311,7 +317,45 @@ def processGraphBatch(graph):
 
   return graph_, go_
 
+def graph_loss_fn(net, learning_type,learning_num, params, rng, inputs, targets):
+    error = 0.0
+    accuracy = jnp.array([])
+    location = 0
 
+    prediction_graph = net.apply(params, rng, inputs,is_training=True)
+
+    predictions = prediction_graph.globals
+
+    mask = jraph.get_graph_padding_mask(prediction_graph)
+
+    for i in range(len(learning_type)):
+        if learning_type[i] == loss_regression:
+            miss = (jnp.sum(mask) / mask.shape[0]) * jnp.mean(mask[:, None] * (predictions[:,location:location + learning_num[i]] - targets[:,location:location + learning_num[i]]) ** 2)
+            error += miss
+            accuracy = jnp.append(accuracy, miss)
+        elif learning_type[i] == loss_classification:
+            error += jnp.sum(optax.softmax_cross_entropy( predictions[:,location:location + learning_num[i]], mask[:, None] * targets[:,location:location + learning_num[i]]))
+            accuracy = jnp.append(accuracy, (jnp.sum(mask) / mask.shape[0]) * jnp.mean(mask * (jnp.argmax(predictions[:,location:location + learning_num[i]], axis=-1) == jnp.argmax(targets[:,location:location + learning_num[i]], axis=-1))))
+
+        location += learning_num[i]
+    
+    return error, accuracy
+
+#Only these functions get called on
+def graph_accuracy_fn(net, learning_type, learning_num, params, rng, inputs, targets):
+    accuracy = jnp.array([])
+    location = 0
+    prediction_graph = net.apply(params, rng, inputs,is_training=False)
+    predictions = prediction_graph.globals
+
+    mask = jraph.get_graph_padding_mask(prediction_graph)
+    for i in range(len(learning_type)):
+        if learning_type[i] == loss_regression:
+            accuracy = jnp.append(accuracy, (jnp.sum(mask) / mask.shape[0]) * jnp.mean(mask[:, None] * (predictions[:,location:location + learning_num[i]] - targets[:,location:location + learning_num[i]]) ** 2))
+        elif learning_type[i] == loss_classification:
+            accuracy = jnp.append(accuracy, (jnp.sum(mask) / mask.shape[0]) * jnp.mean(mask * (jnp.argmax(predictions[:,location:location + learning_num[i]], axis=-1) == jnp.argmax(targets[:,location:location + learning_num[i]], axis=-1))))
+        location += learning_num[i]
+    return accuracy
 
 if __name__ == '__main__':
   if not exists("CGNN.pickle"):
@@ -406,8 +450,8 @@ if __name__ == '__main__':
       optimizer = optax.noisy_sgd(learning_rate=lr_schedule)
       opt_state = optimizer.init(params)
 
-      compute_loss_fn = jax.jit(functools.partial(loss_fn, net,label_types,label_nums))
-      compute_accuracy_fn = jax.jit(functools.partial(accuracy_fn, net,label_types,label_nums))
+      compute_loss_fn = jax.jit(functools.partial(graph_loss_fn, net,label_types,label_nums))
+      compute_accuracy_fn = jax.jit(functools.partial(graph_accuracy_fn, net,label_types,label_nums))
 
 
 
@@ -420,7 +464,7 @@ if __name__ == '__main__':
                   X_batch = X_train[batch_start:batch_end]
                   y_batch = y_train[batch_start:batch_end]
 
-                  (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, pad_graph_to_nearest_power_of_two(jraph.batch(X_batch)), y_batch)
+                  (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, pad_graph_to_nearest_power_of_two(jraph.batch(X_batch)), jnp.concatenate((jnp.array(y_batch), jnp.zeros((1,output_dim)))))
                   updates, opt_state = optimizer.update(grad, opt_state)
                   params = optax.apply_updates(params, updates)
                   training_acc.add_accuracy(accs)
