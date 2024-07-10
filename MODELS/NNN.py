@@ -264,19 +264,12 @@ if __name__ == '__main__':
         if not hp["layer_size"]:
             hp["layer_size"] = len(X_train[0])
 
-        print(len(X_train))
-        print(len(X_train[0]))
-        print(len(y_train))
-        print(len(y_train[0]))
-        print(X_train[0])
-        print(y_train[0])
-
         # Now, attempt to load the model NNN.params if it exists, otherwise init with haiku
         # Initialize the network
         net = hk.transform(net_fn)
         rng = jax.random.PRNGKey(0x4d696361684d756e64790a % 2**32)
         init_rng, train_rng = jax.random.split(rng)
-        params = net.init(init_rng, X_train[0], is_training=True)
+        params = net.init(init_rng, jnp.array([X_train[0]]), is_training=True)
         if exists("NNN.params"):
             with open("NNN.params", "rb") as f:
                 params = pickle.load(f)
