@@ -1,6 +1,7 @@
 import sys, os, shutil
 from tqdm import tqdm
 
+#Note that jax loads on the first call to a jax function
 # if not __name__ == '__main__':
 #   os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
@@ -28,7 +29,8 @@ copy_file_to_directories('includes.py', target_directories)
 
 
 from includes import *
-load_submodules() #this is a function in includes.py that loads all the submodules.
+if __name__ == '__main__':
+    load_submodules() #this is a function in includes.py that loads all the submodules.
 
 
 # hyperparameters
