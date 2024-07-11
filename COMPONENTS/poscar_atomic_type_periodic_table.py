@@ -1,245 +1,40 @@
 from includes import *
 
 def atomToCoords(name):
-    if name == "H":
-        return [0, 0, 0]
-    elif name == "He":
-        return [0, 0, 1]#different, i likey here
-    elif name == "Li":
-        return [1, 0, 0]
-    elif name == "Be":
-        return [1, 0, 1]
-    elif name == "B":
-        return [1, 6, 0]
-    elif name == "C":
-        return [1, 6, 1]
-    elif name == "N":
-        return [1, 7, 0]
-    elif name == "O":
-        return [1, 7, 1]
-    elif name == "F":
-        return [1, 8, 0]
-    elif name == "Ne":
-        return [1, 8, 1]
-    elif name == "Na":
-        return [2, 0, 0]
-    elif name == "Mg":
-        return [2, 0, 1]
-    elif name == "Al":
-        return [2, 6, 0]
-    elif name == "Si":
-        return [2, 6, 1]
-    elif name == "P":
-        return [2, 7, 0]
-    elif name == "S":
-        return [2, 7, 1]
-    elif name == "Cl":
-        return [2, 8, 0]
-    elif name == "Ar":
-        return [2, 8, 1]
-    elif name == "K":
-        return [3, 0, 0]
-    elif name == "Ca":
-        return [3, 0, 1]
-    elif name == "Sc":
-        return [3, 1, 0]
-    elif name == "Ti":
-        return [3, 1, 1]
-    elif name == "V":
-        return [3, 2, 0]
-    elif name == "Cr":
-        return [3, 2, 1]
-    elif name == "Mn":
-        return [3, 3, 0]
-    elif name == "Fe":
-        return [3, 3, 1]
-    elif name == "Co":
-        return [3, 4, 0]
-    elif name == "Ni":
-        return [3, 4, 1]
-    elif name == "Cu":
-        return [3, 5, 0]
-    elif name == "Zn":
-        return [3, 5, 1]
-    elif name == "Ga":
-        return [3, 6, 0]
-    elif name == "Ge":
-        return [3, 6, 1]
-    elif name == "As":
-        return [3, 7, 0]
-    elif name == "Se":
-        return [3, 7, 1]
-    elif name == "Br":
-        return [3, 8, 0]
-    elif name == "Kr":
-        return [3, 8, 1]
-    elif name == "Rb":
-        return [4, 0, 0]
-    elif name == "Sr":
-        return [4, 0, 1]
-    elif name == "Y":
-        return [4, 1, 0]
-    elif name == "Zr":
-        return [4, 1, 1]
-    elif name == "Nb":
-        return [4, 2, 0]
-    elif name == "Mo":
-        return [4, 2, 1]
-    elif name == "Tc":
-        return [4, 3, 0]
-    elif name == "Ru":
-        return [4, 3, 1]
-    elif name == "Rh":
-        return [4, 4, 0]
-    elif name == "Pd":
-        return [4, 4, 1]
-    elif name == "Ag":
-        return [4, 5, 0]
-    elif name == "Cd":
-        return [4, 5, 1]
-    elif name == "In":
-        return [4, 6, 0]
-    elif name == "Sn":
-        return [4, 6, 1]
-    elif name == "Sb":
-        return [4, 7, 0]
-    elif name == "Te":
-        return [4, 7, 1]
-    elif name == "I":
-        return [4, 8, 0]
-    elif name == "Xe":
-        return [4, 8, 1]
-    elif name == "Cs":
-        return [5, 0, 0]
-    elif name == "Ba":
-        return [5, 0, 1]
-    elif name == "Lu":
-        return [5, 1, 0]
-    elif name == "Hf":
-        return [5, 1, 1]
-    elif name == "Ta":
-        return [5, 2, 0]
-    elif name == "W":
-        return [5, 2, 1]
-    elif name == "Re":
-        return [5, 3, 0]
-    elif name == "Os":
-        return [5, 3, 1]
-    elif name == "Ir":
-        return [5, 4, 0]
-    elif name == "Pt":
-        return [5, 4, 1]
-    elif name == "Au":
-        return [5, 5, 0]
-    elif name == "Hg":
-        return [5, 5, 1]
-    elif name == "Tl":
-        return [5, 6, 0]
-    elif name == "Pb":
-        return [5, 6, 1]
-    elif name == "Bi":
-        return [5, 7, 0]
-    elif name == "Po":
-        return [5, 7, 1]
-    elif name == "At":
-        return [5, 8, 0]
-    elif name == "Rn":
-        return [5, 8, 1]
-    elif name == "Fr":
-        return [6, 0, 0]
-    elif name == "Ra":
-        return [6, 0, 1]
-    elif name == "Lr":
-        return [6, 1, 0]
-    elif name == "Rf":
-        return [6, 1, 1]
-    elif name == "Db":
-        return [6, 2, 0]
-    elif name == "Sg":
-        return [6, 2, 1]
-    elif name == "Bh":
-        return [6, 3, 0]
-    elif name == "Hs":
-        return [6, 3, 1]
-    elif name == "Mt":
-        return [6, 4, 0]
-    elif name == "Ds":
-        return [6, 4, 1]
-    elif name == "Rg":
-        return [6, 5, 0]
-    elif name == "Cn":
-        return [6, 5, 1]
-    elif name == "Nh":
-        return [6, 6, 0]
-    elif name == "Fl":
-        return [6, 6, 1]
-    elif name == "Mc":
-        return [6, 7, 0]
-    elif name == "Lv":
-        return [6, 7, 1]
-    elif name == "Ts":
-        return [6, 8, 0]
-    elif name == "Og":
-        return [6, 8, 1]
-    elif name == "La":
-        return [5, 9, 0]
-    elif name == "Ce":
-        return [5, 9, 1]
-    elif name == "Pr":
-        return [5, 10, 0]
-    elif name == "Nd":
-        return [5, 10, 1]
-    elif name == "Pm":
-        return [5, 11, 0]
-    elif name == "Sm":
-        return [5, 11, 1]
-    elif name == "Eu":
-        return [5, 12, 0]
-    elif name == "Gd":
-        return [5, 12, 1]
-    elif name == "Tb":
-        return [5, 13, 0]
-    elif name == "Dy":
-        return [5, 13, 1]
-    elif name == "Ho":
-        return [5, 14, 0]
-    elif name == "Er":
-        return [5, 14, 1]
-    elif name == "Tm":
-        return [5, 15, 0]
-    elif name == "Yb":
-        return [5, 15, 1]
-    elif name == "Ac":
-        return [6, 9, 0]
-    elif name == "Th":
-        return [6, 9, 1]
-    elif name == "Pa":
-        return [6, 10, 0]
-    elif name == "U":
-        return [6, 10, 1]
-    elif name == "Np":
-        return [6, 11, 0]
-    elif name == "Pu":
-        return [6, 11, 1]
-    elif name == "Am":
-        return [6, 12, 0]
-    elif name == "Cm":
-        return [6, 12, 1]
-    elif name == "Bk":
-        return [6, 13, 0]
-    elif name == "Cf":
-        return [6, 13, 1]
-    elif name == "Es":
-        return [6, 14, 0]
-    elif name == "Fm":
-        return [6, 14, 1]
-    elif name == "Md":
-        return [6, 15, 0]
-    elif name == "No":
-        return [6, 15, 1]
-    else:
-        print(name)
-        exit()
+    atom_coords = {
+        "H": [0, 0, 0], "He": [0, 0, 1],
+        "Li": [1, 0, 0], "Be": [1, 0, 1], "B": [1, 6, 0], "C": [1, 6, 1],
+        "N": [1, 7, 0], "O": [1, 7, 1], "F": [1, 8, 0], "Ne": [1, 8, 1],
+        "Na": [2, 0, 0], "Mg": [2, 0, 1], "Al": [2, 6, 0], "Si": [2, 6, 1],
+        "P": [2, 7, 0], "S": [2, 7, 1], "Cl": [2, 8, 0], "Ar": [2, 8, 1],
+        "K": [3, 0, 0], "Ca": [3, 0, 1], "Sc": [3, 1, 0], "Ti": [3, 1, 1],
+        "V": [3, 2, 0], "Cr": [3, 2, 1], "Mn": [3, 3, 0], "Fe": [3, 3, 1],
+        "Co": [3, 4, 0], "Ni": [3, 4, 1], "Cu": [3, 5, 0], "Zn": [3, 5, 1],
+        "Ga": [3, 6, 0], "Ge": [3, 6, 1], "As": [3, 7, 0], "Se": [3, 7, 1],
+        "Br": [3, 8, 0], "Kr": [3, 8, 1], "Rb": [4, 0, 0], "Sr": [4, 0, 1],
+        "Y": [4, 1, 0], "Zr": [4, 1, 1], "Nb": [4, 2, 0], "Mo": [4, 2, 1],
+        "Tc": [4, 3, 0], "Ru": [4, 3, 1], "Rh": [4, 4, 0], "Pd": [4, 4, 1],
+        "Ag": [4, 5, 0], "Cd": [4, 5, 1], "In": [4, 6, 0], "Sn": [4, 6, 1],
+        "Sb": [4, 7, 0], "Te": [4, 7, 1], "I": [4, 8, 0], "Xe": [4, 8, 1],
+        "Cs": [5, 0, 0], "Ba": [5, 0, 1], "Lu": [5, 1, 0], "Hf": [5, 1, 1],
+        "Ta": [5, 2, 0], "W": [5, 2, 1], "Re": [5, 3, 0], "Os": [5, 3, 1],
+        "Ir": [5, 4, 0], "Pt": [5, 4, 1], "Au": [5, 5, 0], "Hg": [5, 5, 1],
+        "Tl": [5, 6, 0], "Pb": [5, 6, 1], "Bi": [5, 7, 0], "Po": [5, 7, 1],
+        "At": [5, 8, 0], "Rn": [5, 8, 1], "Fr": [6, 0, 0], "Ra": [6, 0, 1],
+        "Lr": [6, 1, 0], "Rf": [6, 1, 1], "Db": [6, 2, 0], "Sg": [6, 2, 1],
+        "Bh": [6, 3, 0], "Hs": [6, 3, 1], "Mt": [6, 4, 0], "Ds": [6, 4, 1],
+        "Rg": [6, 5, 0], "Cn": [6, 5, 1], "Nh": [6, 6, 0], "Fl": [6, 6, 1],
+        "Mc": [6, 7, 0], "Lv": [6, 7, 1], "Ts": [6, 8, 0], "Og": [6, 8, 1],
+        "La": [5, 9, 0], "Ce": [5, 9, 1], "Pr": [5, 10, 0], "Nd": [5, 10, 1],
+        "Pm": [5, 11, 0], "Sm": [5, 11, 1], "Eu": [5, 12, 0], "Gd": [5, 12, 1],
+        "Tb": [5, 13, 0], "Dy": [5, 13, 1], "Ho": [5, 14, 0], "Er": [5, 14, 1],
+        "Tm": [5, 15, 0], "Yb": [5, 15, 1], "Ac": [6, 9, 0], "Th": [6, 9, 1],
+        "Pa": [6, 10, 0], "U": [6, 10, 1], "Np": [6, 11, 0], "Pu": [6, 11, 1],
+        "Am": [6, 12, 0], "Cm": [6, 12, 1], "Bk": [6, 13, 0], "Cf": [6, 13, 1],
+        "Es": [6, 14, 0], "Fm": [6, 14, 1], "Md": [6, 15, 0], "No": [6, 15, 1]
+    }
+
+    return atom_coords[name]
 
 
 def info(poscar):
