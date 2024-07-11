@@ -37,7 +37,7 @@ hp = {
     "batch_size": 1000,
     "dropout_rate": 0.1,
     "num_proc": 12,#This is the number of processes used in preprocessing
-    "atom_bin_sizes": (120, 80, 60, 40, 40, 40)
+    "atom_bin_sizes": (40, 24, 16, 12, 8, 6)
 }
 
 
@@ -223,7 +223,7 @@ if __name__ == '__main__':
         # Learning rate schedule: linear ramp-up and then constant
         num_epochs = 5000
         num_batches = X_train.shape[0] // hp["batch_size"]
-        ramp_up_epochs = 100  # Number of epochs to linearly ramp up the learning rate
+        ramp_up_epochs = 500  # Number of epochs to linearly ramp up the learning rate
         total_ramp_up_steps = ramp_up_epochs * num_batches
         lr_schedule = optax.linear_schedule(init_value=1e-6, 
                                             end_value =1e-5, 
