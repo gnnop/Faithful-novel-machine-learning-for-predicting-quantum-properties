@@ -1,7 +1,8 @@
 import sys, os, shutil
+from tqdm import tqdm
 
-if not __name__ == '__main__':
-  os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+# if not __name__ == '__main__':
+#   os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
 os.chdir(os.path.dirname(os.path.realpath(__file__)))
 
@@ -62,6 +63,8 @@ def net_fn(batch, is_training=False):
 
 
 def processID(valid_material_id):
+    print(valid_material_id)
+
     poscar = preprocessPoscar(valid_material_id)
     
     # Collect material inputs
@@ -121,6 +124,7 @@ output_dim = 0#initialize before calling the network
 
 if __name__ == '__main__':
     if not exists("NNN.pickle"):
+        print("Preprocessing")
 
         #the atomic embeddings are assumed to be both input and available for all
         #poscar files. The global embeddings are assumed to not exist for all elements.
@@ -136,6 +140,8 @@ if __name__ == '__main__':
             common_valid_material_ids = set.intersection(common_valid_material_ids, component.valid_ids())
 
         print("There are", len(common_valid_material_ids), "materials with all inputs and outputs.")
+        
+        print("Loading data...")
 
         db_material_input_global = []
         db_material_input_atomic = []
@@ -169,7 +175,11 @@ if __name__ == '__main__':
 
         pool.close()
         pool.join()
-        for valid_material_id in common_valid_material_ids:
+
+        
+        print("Loading complete")
+
+        for valid_material_id in tqdm(common_valid_material_ids):
 
             poscar = preprocessPoscar(valid_material_id)
             
@@ -248,6 +258,7 @@ if __name__ == '__main__':
 
 
     with open("NNN.pickle", "rb") as f:
+        print("Training")
         data = pickle.load(f)
         inputs = data["data"]
         labels = data["labels"]
@@ -296,7 +307,7 @@ if __name__ == '__main__':
 
 
         try:
-            for epoch in range(num_epochs):
+            for epoch in tqdm(range(num_epochs)):
                 for valid_material_id in range(num_batches):
                     batch_rng = jax.random.fold_in(train_rng, valid_material_id)
                     batch_start, batch_end = valid_material_id * hp["batch_size"], (valid_material_id + 1) * hp["batch_size"]

@@ -79,7 +79,7 @@ function extract_poscar {
 function prepare_input_components {
     local experiment_dir="$1"
     cp "$SCRIPT_DIR/COMPONENTS/poscar_atomic_type_periodic_table.py" "$experiment_dir/input/"
-    cp "$SCRIPT_DIR/COMPONENTS/poscar_atomic_type_one_hot.py" "$experiment_dir/input/"
+    # cp "$SCRIPT_DIR/COMPONENTS/poscar_atomic_type_one_hot.py" "$experiment_dir/input/"
     cp "$SCRIPT_DIR/COMPONENTS/space_group_one_hot.py" "$experiment_dir/input/"
 }
 
@@ -94,7 +94,7 @@ function prepare_target_component {
 function run_experiment {
     local experiment_dir="$1"
     local experiment_name="$2"
-    conda run -n mmp python "$experiment_dir/NNN.py" dryrun &> "run_$experiment_name.txt" &
+    conda run -n mmp python "$experiment_dir/NNN.py" $> "run_$experiment_name.txt"
 }
 
 # Step 7: Collect results
