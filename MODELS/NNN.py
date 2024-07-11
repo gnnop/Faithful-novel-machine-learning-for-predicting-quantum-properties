@@ -176,76 +176,6 @@ if __name__ == '__main__':
         pool.close()
         pool.join()
 
-        
-        print("Loading complete")
-
-        for valid_material_id in tqdm(common_valid_material_ids):
-
-            poscar = preprocessPoscar(valid_material_id)
-            
-            # Collect material inputs
-            material_input_global =  [poscar_global.info(poscar) for poscar_global in poscar_globals]
-            material_input_global += [global_input.info(valid_material_id) for global_input in global_inputs]
-            material_input_atomic = [sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])]
-
-
-            # Collect material outputs
-            material_output = []
-            for func in range(len(global_outputs)):
-                material_output.append(global_outputs[func].info(valid_material_id))
-
-            atom_names = atom_names_in_poscar(poscar)
-
-
-            atom_counts = Counter(atom_names)
-            sorted_atoms = sorted(atom_counts.items(), key=lambda x: (-x[1], x[0]))
-            ordering = {atom: j for j, (atom, _) in enumerate(sorted_atoms)}
-
-            # Create a mapping between each sublist in `material_input_atomic` and its corresponding atom
-            atom_pa_pairs = list(zip(atom_names, material_input_atomic))
-
-            # Sort the sublists based on the atom frequencies stored in the `ordering` dictionary
-            atom_pa_pairs_sorted = sorted(atom_pa_pairs, key=lambda x: ordering[x[0]])
-
-            # Grab one set of atom properties of each atom type
-            unique_atoms = {}
-            for atom_string, atom_list in atom_pa_pairs_sorted:
-                if atom_string not in unique_atoms:
-                    unique_atoms[atom_string] = atom_list
-            unique_atom_tuples_sorted_by_count = [(atom_string, unique_atoms[atom_string], atom_counts[atom_string]) for atom_string in unique_atoms]
-
-            # pad the sorted atom list to match the number of atom bins
-            if len(unique_atom_tuples_sorted_by_count) > len(hp["atom_bin_sizes"]):
-                skipped_atom_count += 1
-                continue
-            while len(unique_atom_tuples_sorted_by_count) < len(hp["atom_bin_sizes"]):
-                unique_atom_tuples_sorted_by_count.append(("none", [0]*len(unique_atom_tuples_sorted_by_count[0][1]), 0))
-            
-            # create bins
-            processed_atoms = []
-            should_skip_atom = False
-            for i in range(len(unique_atom_tuples_sorted_by_count)):
-                element = unique_atom_tuples_sorted_by_count[i]
-                if element[2] > hp["atom_bin_sizes"][i]:
-                    should_skip_atom = True
-                    break
-                processed_atoms.append(
-                    [
-                        element[1],
-                        [1]*element[2] + [0]*(hp["atom_bin_sizes"][i]-element[2])
-                    ]
-                )
-            if should_skip_atom:
-                skipped_atom_count += 1
-                continue
-
-
-
-
-            db_material_input_global.append(flatten(material_input_global))
-            db_material_input_atomic.append(flatten(processed_atoms))
-            db_material_output.append(flatten(material_output))
-
         print(skipped_atom_count, "poscars were skipped due to binning issues.")
 
         with open("NNN.pickle", "wb") as f:
@@ -266,6 +196,8 @@ if __name__ == '__main__':
         label_nums = data["labels_nums"]
 
         output_dim = sum(label_nums)
+
+        print("loading ", len(inputs), "data points")
 
 
         # Split the data into training and validation sets
@@ -291,7 +223,7 @@ if __name__ == '__main__':
         # Learning rate schedule: linear ramp-up and then constant
         num_epochs = 5000
         num_batches = X_train.shape[0] // hp["batch_size"]
-        ramp_up_epochs = 500  # Number of epochs to linearly ramp up the learning rate
+        ramp_up_epochs = 100  # Number of epochs to linearly ramp up the learning rate
         total_ramp_up_steps = ramp_up_epochs * num_batches
         lr_schedule = optax.linear_schedule(init_value=1e-6, 
                                             end_value =1e-5, 
