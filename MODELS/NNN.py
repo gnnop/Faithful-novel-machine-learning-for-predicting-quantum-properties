@@ -65,8 +65,6 @@ def net_fn(batch, is_training=False):
 
 
 def processID(valid_material_id):
-    print(valid_material_id)
-
     poscar = preprocessPoscar(valid_material_id)
     
     # Collect material inputs
