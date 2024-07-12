@@ -34,39 +34,47 @@ load_submodules() #this is a function in includes.py that loads all the submodul
 hp = {
     "dropoutRate": 0.1,
     "max_atoms": 40,
-    "batch_size": 128,
+    "batch_size": 512,
     "num_proc": 12,#This is the number of processes used in preprocessing
 }
 
-
 def MAB(X, Y):
-  attention_output = hk.MultiHeadAttention(num_heads=8, key_size=128, w_init_scale=1.0, model_size=X.shape[-1])(X, Y, Y)
-  H = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(X + attention_output)
-  return hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(H + hk.nets.MLP([256, 128, 128, H.shape[-1]], activation=jax.nn.leaky_relu)(H))
+  head_count = 4
+  key_count = 64
+  query = jax.nn.leaky_relu(hk.Linear(key_count * head_count)(X))
+  key = jax.nn.leaky_relu(hk.Linear(key_count * head_count)(Y))
+  value = jax.nn.leaky_relu(hk.Linear(key_count * head_count)(Y))
+  attention_output = hk.MultiHeadAttention(num_heads=head_count, key_size=key_count, w_init_scale=1.0)(query, key, value)
+  H = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(query + attention_output)
+  ret = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(H + hk.nets.MLP([256, 128, 128, H.shape[-1]], activation=jax.nn.leaky_relu)(H))
+  return ret
 
 
 def SAB(X):
   return MAB(X, X)
 
 def ISAB(X,param_name, num_inducing_points=16):
-  inducing_points = hk.get_parameter(param_name, shape=(num_inducing_points, X.shape[-1]), init=jnp.zeros)
+  inducing_points = hk.get_parameter(param_name, shape=(num_inducing_points, 256), init=jnp.zeros)
   H = MAB(inducing_points, X)
   return MAB(X, H)
 
-def PMA(Z, param_name):
-  num_seeds=1 #apply SAB after if you ever need more vectors out the end
-  seed_vectors = hk.get_parameter(param_name, shape=[num_seeds, Z.shape[-1]], init=hk.initializers.RandomNormal())
-  return MAB(seed_vectors, hk.Linear(Z.shape[-1])(Z))
-
 def encoder(X):
-  X = ISAB(X, "ind1")
+  X = SAB(X)
   return X
 
 def decoder(Z):
-  #Z = hk.nets.MLP([512, 256, 64], activation=jax.nn.leaky_relu)(Z)#check rep dim - prob not needed
-  Z = PMA(Z, "seed_vec")#SAB(PMA(Z))
-  Z = hk.nets.MLP([512, 256, 64], activation=jax.nn.leaky_relu)(Z)
-  return hk.Linear(output_dim)(Z)#implicit global var to avoid passing static_args
+  Z = hk.Sequential([hk.Linear(256), jax.nn.leaky_relu])(Z)#check rep dim - prob not needed
+  num_seeds=12 #apply SAB after if you ever need more vectors out the end
+  seed_vectors = hk.get_parameter("seed_vec", shape=[num_seeds, Z.shape[-1]], init=hk.initializers.RandomNormal())
+  Z = MAB(seed_vectors, Z)
+  Z = SAB(Z)
+  Z = hk.Sequential([
+     hk.Linear(256), jax.nn.leaky_relu,
+     hk.Linear(128), jax.nn.leaky_relu,
+     hk.Linear(64), jax.nn.leaky_relu,
+     hk.Linear(output_dim)
+  ])(Z)
+  return Z[0]#implicit global var to avoid passing static_args
 
 def set_transformer_single(X):
   # Encoder
@@ -74,7 +82,6 @@ def set_transformer_single(X):
 
   # Decoder
   output = decoder(Z)
-
   return output
 
 def set_transformer(batch, is_training=False, dropout_rate=0):
@@ -94,7 +101,7 @@ def set_transformer(batch, is_training=False, dropout_rate=0):
 
 
 def net_fn(batch, is_training=False, dropout_rate=0):
-  return set_transformer(batch, output_dim)
+  return set_transformer(batch)
 
 def processID(valid_material_id):
     poscar = preprocessPoscar(valid_material_id)
@@ -211,7 +218,7 @@ if __name__ == '__main__':
       num_batches = X_train.shape[0] // hp["batch_size"]
       ramp_up_epochs = 50  # Number of epochs to linearly ramp up the learning rate
       total_ramp_up_steps = ramp_up_epochs * num_batches
-      lr_schedule = optax.linear_schedule(init_value=1e-5, 
+      lr_schedule = optax.linear_schedule(init_value=1e-3, 
                                           end_value =1e-3, 
                                           transition_steps=total_ramp_up_steps)
 
@@ -244,11 +251,23 @@ if __name__ == '__main__':
                     print(training_acc.get_weighted_average())
 
                   
+              num_samples = jnp.array(y_val).shape[0] #targets always has a shape - no funky stuff
+              val_num_batches = -(-num_samples // hp["batch_size"])  # Ceiling division
               
+              batch_accuracies = []
+              
+              for batch_idx in range(val_num_batches):
+                  start_idx = batch_idx * hp["batch_size"]
+                  end_idx = min((batch_idx + 1) * hp["batch_size"], num_samples)
+                  
+                  batch_accuracy = compute_accuracy_fn(params, rng, (X_val[start_idx:end_idx], globals_val[start_idx:end_idx]), y_val[start_idx:end_idx])
+                  batch_accuracies.append(batch_accuracy)
+              
+              # Stack the batch accuracies and take the mean
+              batch_accuracies = jnp.stack(batch_accuracies)
+              mean_accuracy = jnp.mean(batch_accuracies, axis=0)
 
-              # Save the training and validation loss - for uniformity, we need to make sure this is always the same. Also, for some networks, the following needs to be shrunk
-              val_accuracy = compute_accuracy_fn(params, batch_rng, (X_val, globals_val), y_val)
-              print(f"Epoch {epoch}, Validation accuracy: {val_accuracy}")
+              print(f"Epoch {epoch}, Validation accuracy: {mean_accuracy}")
       except KeyboardInterrupt:
           with open("CANN.params", "wb") as f:
               pickle.dump(params, f)
