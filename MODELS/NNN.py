@@ -24,13 +24,13 @@ def copy_file_to_directories(filename, target_dirs):
 
 # Define the relative paths of the target directories
 target_directories = ['input', 'output']
-copy_file_to_directories('includes.py', target_directories)
+if __name__ == '__main__':
+    copy_file_to_directories('includes.py', target_directories)
 
 
 
 from includes import *
-if __name__ == '__main__':
-    load_submodules() #this is a function in includes.py that loads all the submodules.
+load_submodules() #this is a function in includes.py that loads all the submodules.
 
 
 # hyperparameters
