@@ -6,6 +6,9 @@ $BLUE = "DarkBlue"
 $CYAN = "Cyan"
 $NC = "Default"
 
+$OutputEncoding = [Console]::InputEncoding = [Console]::OutputEncoding =
+                    New-Object System.Text.UTF8Encoding
+
 # Function to print messages with colors
 function Write-Color {
     param (
@@ -26,12 +29,8 @@ $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 # ASCII Art Banner
 function Print-Banner {
     Write-Color @"
-╔╦╗┌─┐┌┬┐┌─┐┬─┐┬┌─┐┬  ┌─┐  ╔╦╗┌─┐┌┬┐┌─┐┬  ┬  ┬┌┐┌┌─┐  ╔═╗┬─┐┌─┐ ┬┌─┐┌─┐┌┬┐
-║║║├─┤ │ ├┤ ├┬┘│├─┤│  └─┐  ║║║│ │ ││├┤ │  │  │││││ ┬  ╠═╝├┬┘│ │ │├┤ │   │ 
-╩ ╩┴ ┴ ┴ └─┘┴└─┴┴ ┴┴─┘└─┘  ╩ ╩└─┘─┴┘└─┘┴─┘┴─┘┴┘└┘└─┘  ╩  ┴└─└─┘└┘└─┘└─┘ ┴ 
-          ╔═╗┌─┐┌┐┌┌─┐┬┌─┐┬ ┬┬─┐┌─┐┌┬┐┬┌─┐┌┐┌  ╦ ╦┬┌─┐┌─┐┬─┐┌┬┐           
-          ║  │ ││││├┤ ││ ┬│ │├┬┘├─┤ │ ││ ││││  ║║║│┌─┘├─┤├┬┘ ││           
-          ╚═╝└─┘┘└┘└  ┴└─┘└─┘┴└─┴ ┴ ┴ ┴└─┘┘└┘  ╚╩╝┴└─┘┴ ┴┴└──┴┘           
+     Materials Modelling Project
+        Configuration Wizard
 "@ $BLUE
 }
 
@@ -274,50 +273,38 @@ Write-Color "Welcome to the Auto Setup Wizard for the Materials Modeling Project
 
 Write-Color @"
 (0/5)
-╦┌┐┌┌─┐┌┬┐┌─┐┬  ┬    ╔╦╗┌─┐┌─┐┌─┐┌┐┌┌┬┐┌─┐┌┐┌┌─┐┬┌─┐┌─┐
-║│││└─┐ │ ├─┤│  │     ║║├┤ ├─┘├┤ │││ ││├┤ ││││  │├┤ └─┐
-╩┘└┘└─┘ ┴ ┴ ┴┴─┘┴─┘  ═╩╝└─┘┴  └─┘┘└┘─┴┘└─┘┘└┘└─┘┴└─┘└─┘
+Install Dependencies
 "@ $BLUE
 Install-Dependencies
 
 Write-Color @"
 (1/5)
-╔═╗─┐ ┬┌─┐┌─┐┬─┐┬┌┬┐┌─┐┌┐┌┌┬┐  ╔═╗┌─┐┬  ┌┬┐┌─┐┬─┐
-║╣ ┌┴┬┘├─┘├┤ ├┬┘││││├┤ │││ │   ╠╣ │ ││   ││├┤ ├┬┘
-╚═╝┴ └─┴  └─┘┴└─┴┴ ┴└─┘┘└┘ ┴   ╚  └─┘┴─┘─┴┘└─┘┴└─
+Experiment Folder
 "@ $BLUE
 Create-Experiment-Folder
 Extract-POSCAR
 
 Write-Color @"
 (2/5)
-╔═╗┌─┐┬  ┌─┐┌─┐┌┬┐  ╔╦╗┌─┐┌┬┐┌─┐┬  
-╚═╗├┤ │  ├┤ │   │   ║║║│ │ ││├┤ │  
-╚═╝└─┘┴─┘└─┘└─┘ ┴   ╩ ╩└─┘─┴┘└─┘┴─┘
+Select Model
 "@ $BLUE
 Select-Model
 
 Write-Color @"
 (3/5)
-╔═╗┌─┐┬  ┌─┐┌─┐┌┬┐  ╔╦╗┌─┐┌┬┐┌─┐┬    ╦┌┐┌┌─┐┬ ┬┌┬┐┌─┐
-╚═╗├┤ │  ├┤ │   │   ║║║│ │ ││├┤ │    ║│││├─┘│ │ │ └─┐
-╚═╝└─┘┴─┘└─┘└─┘ ┴   ╩ ╩└─┘─┴┘└─┘┴─┘  ╩┘└┘┴  └─┘ ┴ └─┘
+Select Model Inputs
 "@ $BLUE
 Prepare-Input-Components
 
 Write-Color @"
 (4/5)
-╔═╗┌─┐┬  ┌─┐┌─┐┌┬┐  ╔╦╗┌─┐┌┬┐┌─┐┬    ╔╦╗┌─┐┬─┐┌─┐┌─┐┌┬┐
-╚═╗├┤ │  ├┤ │   │   ║║║│ │ ││├┤ │     ║ ├─┤├┬┘│ ┬├┤  │ 
-╚═╝└─┘┴─┘└─┘└─┘ ┴   ╩ ╩└─┘─┴┘└─┘┴─┘   ╩ ┴ ┴┴└─└─┘└─┘ ┴ 
+Select Model Target
 "@ $BLUE
 Prepare-Target-Component
 
 Write-Color @"
 (5/5)
-╔╦╗┌─┐┌┐┌┌─┐
- ║║│ ││││├┤ 
-═╩╝└─┘┘└┘└─┘
+Done
 "@ $BLUE
 Run-Experiment
 
