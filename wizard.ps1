@@ -94,7 +94,7 @@ function Install-Dependencies {
         if (-not $global:cudaVersion) {
             conda run -n mmp pip install jax chex optax dm-haiku jraph
         } else {
-            conda run -n mmp pip install "jax[$global:cudaVersion]" chex optax dm-haiku jraph
+            conda run -n mmp pip install "jax[$global:cudaVersion]" jaxlib==0.4.21 chex optax dm-haiku jraph
         }
     }
 }
@@ -104,15 +104,17 @@ function Create-Experiment-Folder {
     while ($true) {
         Write-Color "Enter the name of your experiment directory: " $CYAN -NoNewline
         $experimentDir = Read-Host
+        $global:experimentPath = Join-Path $SCRIPT_DIR $experimentDir
+        Write-Color "Experiment path: $experimentPath" $YELLOW
         if (-not $experimentDir) {
             Write-Color "Experiment directory name cannot be empty. Please enter a valid name." $RED
-        } elseif (Test-Path $experimentDir) {
+        } elseif (Test-Path $experimentPath) {
             Write-Color "Experiment directory already exists. Do you want to overwrite it? (y/n): " $RED -NoNewline
             $overwrite = Read-Host
             if ($overwrite -eq "y") {
-                Remove-Item -Recurse -Force $experimentDir
-                New-Item -ItemType Directory -Path "$experimentDir\input", "$experimentDir\output" | Out-Null
-                Write-Color "Experiment directory '$experimentDir' created with 'inputs' and 'target' subfolders." $GREEN
+                Remove-Item -Recurse -Force $experimentPath
+                New-Item -ItemType Directory -Path "$experimentPath\input", "$experimentPath\output" | Out-Null
+                Write-Color "Experiment directory '$experimentDir' created with 'input' and 'output' subfolders." $GREEN
                 break
             } elseif ($overwrite -eq "n") {
                 while ($true) {
@@ -120,7 +122,7 @@ function Create-Experiment-Folder {
                     $runExisting = Read-Host
                     if ($runExisting -eq "y") {
                         Write-Color "Running the existing experiment..." $YELLOW
-                        $modelFile = Get-ChildItem "$experimentDir" -Filter "*.py" | Where-Object { $_.Name -ne "includes.py" } | Select-Object -First 1
+                        $modelFile = Get-ChildItem $experimentPath -Filter "*.py" | Where-Object { $_.Name -ne "includes.py" } | Select-Object -First 1
                         if ($modelFile) {
                             conda run -n mmp python $modelFile.FullName
                         } else {
@@ -138,12 +140,12 @@ function Create-Experiment-Folder {
                 Write-Color "Invalid response. Please enter 'y' for yes or 'n' for no." $RED
             }
         } else {
-            New-Item -ItemType Directory -Path "$experimentDir\input", "$experimentDir\output" | Out-Null
-            Write-Color "Experiment directory '$experimentDir' created with 'inputs' and 'target' subfolders." $GREEN
+            New-Item -ItemType Directory -Path "$experimentPath\input", "$experimentPath\output" | Out-Null
+            Write-Color "Experiment directory '$experimentDir' created with 'input' and 'output' subfolders." $GREEN
             break
         }
     }
-    Copy-Item "$SCRIPT_DIR\includes.py" "$experimentDir"
+    Copy-Item "$SCRIPT_DIR\includes.py" $experimentPath
 }
 
 # Step 2: Select a Model
@@ -152,9 +154,14 @@ function Select-Model {
     Get-ChildItem "$SCRIPT_DIR\MODELS"
     while ($true) {
         Write-Color "Enter the model filename you want to copy to your experiment directory: " $CYAN -NoNewline
-        $modelFile = Read-Host
-        if (Test-Path "$SCRIPT_DIR\MODELS\$modelFile") {
-            Copy-Item "$SCRIPT_DIR\MODELS\$modelFile" "$experimentDir\"
+        $global:modelFile = Read-Host
+        $modelPath = Join-Path "$SCRIPT_DIR\MODELS" $modelFile
+        $targetPath = Join-Path $experimentPath $modelFile
+        Write-Color "Model path: $modelPath" $YELLOW
+        Write-Color "Target path: $targetPath" $YELLOW
+        if (Test-Path $modelPath) {
+            Write-Color "Copying model from $modelPath to $targetPath" $YELLOW
+            Copy-Item $modelPath $targetPath
             Write-Color "Model '$modelFile' copied to '$experimentDir'." $GREEN
             break
         } else {
@@ -168,33 +175,45 @@ function Extract-POSCAR {
     if (-not (Test-Path "$SCRIPT_DIR\POSCAR")) {
         Write-Color "POSCAR directory not found. Extracting POSCAR.7z..." $YELLOW
         7z x "$SCRIPT_DIR\POSCAR.7z" -o"$SCRIPT_DIR"
-        cmd /c mklink /J "$experimentDir\POSCAR" "$SCRIPT_DIR\POSCAR"
-        cmd /c mklink /J "$experimentDir\CSV" "$SCRIPT_DIR\CSV"
-        Write-Color "POSCAR directory extracted and linked to experiment directory." $GREEN
-    } else {
-        cmd /c mklink /J "$experimentDir\POSCAR" "$SCRIPT_DIR\POSCAR"
-        cmd /c mklink /J "$experimentDir\CSV" "$SCRIPT_DIR\CSV"
-        Write-Color "POSCAR directory linked to experiment directory." $GREEN
     }
+    $poscarLink = Join-Path $experimentPath "POSCAR"
+    $csvLink = Join-Path $experimentPath "CSV"
+    Write-Color "Linking POSCAR and CSV directories..." $YELLOW
+    if (-not (Test-Path $poscarLink)) {
+        cmd /c mklink /J $poscarLink "$SCRIPT_DIR\POSCAR"
+    } else {
+        Write-Color "Link $poscarLink already exists." $YELLOW
+    }
+    if (-not (Test-Path $csvLink)) {
+        cmd /c mklink /J $csvLink "$SCRIPT_DIR\CSV"
+    } else {
+        Write-Color "Link $csvLink already exists." $YELLOW
+    }
+    Write-Color "POSCAR directory linked to experiment directory." $GREEN
 }
 
 # Step 4: Prepare Input Components
 function Prepare-Input-Components {
     Write-Color "Available components:" $BLUE
     Get-ChildItem "$SCRIPT_DIR\COMPONENTS"
-    Write-Color "Copying selected components to the 'inputs' folder..." $YELLOW
+    Write-Color "Copying selected components to the 'input' folder..." $YELLOW
     $poscarAtomicIncluded = $false
     while ($true) {
         Write-Color "Enter a component filename to copy (or 'done' to finish): " $CYAN -NoNewline
         $componentFile = Read-Host
+        $componentPath = Join-Path "$SCRIPT_DIR\COMPONENTS" $componentFile
+        $inputPath = Join-Path "$experimentPath\input" $componentFile
+        Write-Color "Component path: $componentPath" $YELLOW
+        Write-Color "Input path: $inputPath" $YELLOW
         if ($componentFile -eq "done") {
             if (-not $poscarAtomicIncluded) {
                 Write-Color "At least one poscar_atomic_ type component is required." $RED
             } else {
                 break
             }
-        } elseif (Test-Path "$SCRIPT_DIR\COMPONENTS\$componentFile") {
-            Copy-Item "$SCRIPT_DIR\COMPONENTS\$componentFile" "$experimentDir\input\"
+        } elseif (Test-Path $componentPath) {
+            Write-Color "Copying component from $componentPath to $inputPath" $YELLOW
+            Copy-Item $componentPath $inputPath
             Write-Color "Component '$componentFile' copied to '$experimentDir\input\'." $GREEN
             if ($componentFile -like "poscar_atomic_*") {
                 $poscarAtomicIncluded = $true
@@ -212,9 +231,14 @@ function Prepare-Target-Component {
     while ($true) {
         Write-Color "Enter the target component filename to copy: " $CYAN -NoNewline
         $targetFile = Read-Host
+        $targetPath = Join-Path "$SCRIPT_DIR\COMPONENTS" $targetFile
+        $outputPath = Join-Path "$experimentPath\output" $targetFile
+        Write-Color "Target path: $targetPath" $YELLOW
+        Write-Color "Output path: $outputPath" $YELLOW
         if ($targetFile -notlike "poscar_*") {
-            if (Test-Path "$SCRIPT_DIR\COMPONENTS\$targetFile") {
-                Copy-Item "$SCRIPT_DIR\COMPONENTS\$targetFile" "$experimentDir\output\"
+            if (Test-Path $targetPath) {
+                Write-Color "Copying target component from $targetPath to $outputPath" $YELLOW
+                Copy-Item $targetPath $outputPath
                 Write-Color "Target component '$targetFile' copied to '$experimentDir\output\'." $GREEN
                 break
             } else {
@@ -233,7 +257,7 @@ function Run-Experiment {
         $runNow = Read-Host
         if ($runNow -eq "y") {
             Write-Color "Running the experiment..." $YELLOW
-            conda run -n mmp python "$experimentDir\$modelFile"
+            conda run -n mmp python "$experimentPath\$modelFile"
             break
         } elseif ($runNow -eq "n") {
             Write-Color "Setup completed. You can run your experiment from the '$experimentDir' directory." $GREEN

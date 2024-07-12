@@ -6,9 +6,10 @@ dependencies:
   - pip=23.2.1
   - python=3.11.4
   - pip:
-      - numpy
+      # - numpy # installs with Jax
       - matplotlib
       - mendeleev
-      - scipy
+      # - scipy     # installs with Optax...
+      - scipy==1.11.1 # ... but Optax installs the wrong version :(
       - tqdm
 prefix: /software/anaconda3/envs/mmp
