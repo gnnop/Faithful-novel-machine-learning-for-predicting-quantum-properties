@@ -128,7 +128,7 @@ function process_results {
 }
 
 # Main Execution
-echo -e "${CYAN}Starting concurrent experiment setup and execution...${NC}"
+echo -e "${CYAN}Starting experiment setup and execution...${NC}"
 install_dependencies
 
 for target_file in "$SCRIPT_DIR/COMPONENTS/"*; do
