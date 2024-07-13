@@ -7,7 +7,7 @@ This project provides machine learning methods that are theoretically fully gene
 - **COMPONENTS/**: Contains various components used in experiments.
 - **CSV/**: Contains CSV files for data processing.
 - **MODELS/**: Contains different models used for experiments.
-- **POSCAR/**: Contains POSCAR files for material structures.
+- **POSCAR/**: Contains POSCAR files for material structures. Must be unzipped.
 
 ## Setup and Running Experiments
 
@@ -31,7 +31,6 @@ To run an experiment, follow these steps:
 
 2. **Select a Model**
    - Copy a model file from the `MODELS` folder into your experiment directory.
-   - Also copy `includes.py` into the experiment folder.
 
 3. **Create Subfolders**
    - Inside your experiment directory, create two subfolders:
@@ -43,10 +42,12 @@ To run an experiment, follow these steps:
    - Ensure to include at least one `poscar_atomic_` type component, as POSCAR files are always parsed.
 
 5. **Prepare Target Component**
-   - Copy a single component into the `target/` folder.
+   - Copy components into the `target/` folder.
    - Components labeled `poscar_` are not valid in the target folder as POSCAR files are always assumed to be inputs. This is open to modification.
 
 ## Running the Models
+
+Double click the model file or run it from the command line.
 
 Models will attempt to load two pickle files if they exist:
 - `model.params`: Contains model parameters.
@@ -60,13 +61,7 @@ All models by default:
 - Perform a 90-10 split for testing and training data.
 - Have important and easily changed functions labeled at the top.
 - Do not currently incorporate hyperparameter search.
-
-## Usage
-
-To run an experiment:
-
-1. Set up your experiment directory as described above.
-2. Run the model script from your experiment directory.
+- Are multithreaded. If your computer experiences a large slowdown during training, either decrease the thread number or the batch size, both located at the top in the models.py that you chose.
 
 ## Additional Information
 
