@@ -12,5 +12,5 @@ def valid_ids():
 def info(id):
     v = csv_loader.info(id)
     if not v:
-        return None
+        raise ValueError(f"energy_per_atom_sin: No entry in database exists for material {id}")
     return getAbsoluteCoords(float(v))
