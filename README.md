@@ -1,6 +1,8 @@
 # TODO LIST
 
 - the components in COMPONENTS should have their own loss functions, rather than using 'classication' and 'regression' but standard loss types should be available in includes so they can just pass a pre-existing classification and regression function out
+- models should write results out for training automatically, and write their parameters out each epoch to avoid failed training
+- if a model is run and there's a prediction folder, the model should write out the material predictions in a csv using the existing pickle and params files and then turn off. This allows easy retrieval of practical results
 - all models should use the method of validating with batch size currently incorporated in CANN and CGNN
 - there should be a correspondence set up between the paper and the experiments, so you can run a file to get the list of labelled experiments that reproduce results in the paper
 - 0.89 validation accuracy must be surpassed on TQC advanced for the paper to be credible. I acheived this once with CGNN, I am trying to do it again.
