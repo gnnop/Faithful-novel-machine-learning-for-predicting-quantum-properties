@@ -33,7 +33,7 @@ load_submodules() #this is a function in includes.py that loads all the submodul
 hp = {
     "dropoutRate": 0.1,
     "max_atoms": 40,
-    "batch_size": 8,#This is now baked into the preprocessing
+    "batch_size": 32,#This is now baked into the preprocessing
     "num_proc": 12,#This is the number of processes used in preprocessing
 }
 
@@ -67,7 +67,7 @@ def GraphConvolution(update_node_fn: Callable,
     # First pass nodes through the node updater.
     nodes = update_node_fn(nodes)
     # Equivalent to jnp.sum(n_node), but jittable
-    total_num_nodes = tree.tree_leaves(nodes)[0].shape[0]
+    total_num_nodes = jax.tree_util.tree_leaves(nodes)[0].shape[0]
     #In the original example, self-edges were included. 
     #based on how I arranged the data, it shouldn't be necessary.
 
@@ -84,23 +84,23 @@ def GraphConvolution(update_node_fn: Callable,
 
       # Pre normalize by sqrt sender degree.
       # Avoid dividing by 0 by taking maximum of (degree, 1).
-      nodes = tree.tree_map(
+      nodes = jax.tree_util.tree_map(
           lambda x: x * jax.lax.rsqrt(jnp.maximum(sender_degree, 1.0))[:, None],
           nodes,
       )
       # Aggregate the pre-normalized nodes.
-      nodes = tree.tree_map(
+      nodes = jax.tree_util.tree_map(
           lambda x: aggregate_nodes_fn(x[conv_senders], conv_receivers,
                                        total_num_nodes), nodes)
       # Post normalize by sqrt receiver degree.
       # Avoid dividing by 0 by taking maximum of (degree, 1).
-      nodes = tree.tree_map(
+      nodes = jax.tree_util.tree_map(
           lambda x:
           (x * jax.lax.rsqrt(jnp.maximum(receiver_degree, 1.0))[:, None]),
           nodes,
       )
     else:
-      nodes = tree.tree_map(
+      nodes = jax.tree_util.tree_map(
           lambda x: aggregate_nodes_fn(x[conv_senders], conv_receivers,
                                        total_num_nodes), nodes)
     # pylint: enable=g-long-lambda
@@ -116,10 +116,20 @@ def edge_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
        hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(128)])
+       hk.Linear(256), jax.nn.leaky_relu])
   return net(feats)
+
+def edge_update_fn_skip(edges, sent_attributes, received_attributes, global_edge_attributes):
+  """Edge update function for graph net."""
+  combined_args = jax.tree_util.tree_flatten((edges, sent_attributes, received_attributes, global_edge_attributes))[0]
+  concat_args = jnp.concatenate(combined_args, axis=-1)
+  net = hk.Sequential(
+      [
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu])
+  return net(concat_args) + edges
 
 @jraph.concatenated_args
 def node_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
@@ -129,10 +139,20 @@ def node_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
        hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(128)])
+       hk.Linear(256), jax.nn.leaky_relu])
   return net(feats)
-# end edge_update_fn
+
+def node_update_fn_skip(nodes, sent_attributes, received_attributes, global_attributes):
+  """Node update function for graph net."""
+  combined_args = jax.tree_util.tree_flatten((nodes, sent_attributes, received_attributes, global_attributes))[0]
+  concat_args = jnp.concatenate(combined_args, axis=-1)
+  net = hk.Sequential(
+      [
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu])
+  return net(concat_args) + nodes
 
 @jraph.concatenated_args
 def update_global_fn(feats: jnp.ndarray) -> jnp.ndarray:
@@ -144,11 +164,21 @@ def update_global_fn(feats: jnp.ndarray) -> jnp.ndarray:
        hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(256), jax.nn.leaky_relu,
        hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(128)])
+       hk.Linear(256), jax.nn.leaky_relu])
   return net(feats)
-# end update_global_fn
+
+def update_global_fn_skip(node_attributes, edge_attribtutes, globals_):
+  """Global update function for graph net."""
+  # MUTAG is a binary classification task, so output pos neg logits.
+  combined_args = jax.tree_util.tree_flatten((node_attributes, edge_attribtutes, globals_))[0]
+  concat_args = jnp.concatenate(combined_args, axis=-1)
+  net = hk.Sequential(
+      [
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu])
+  return net(concat_args) + globals_
 
 def net_fn(graph, is_training=False, dropout_rate=0):
   global globals
@@ -160,14 +190,12 @@ def net_fn(graph, is_training=False, dropout_rate=0):
   collector = jraph.GraphMapFeatures(
     hk.Sequential(
       [
-      hk.Linear(128)]),
+      hk.Linear(256)]),
     hk.Sequential(
       [
-      hk.Linear(128)]),
+      hk.Linear(256)]),
     hk.Sequential(
       [
-      hk.Linear(512), jax.nn.leaky_relu,
-      hk.Linear(512), jax.nn.leaky_relu,
       hk.Linear(512), jax.nn.leaky_relu,
       hk.Linear(256), jax.nn.leaky_relu,
       hk.Linear(128), jax.nn.leaky_relu,
@@ -177,37 +205,34 @@ def net_fn(graph, is_training=False, dropout_rate=0):
       hk.Sequential(
       [
        hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512)]), 
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu]), 
       hk.Sequential(
       [
        hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512)]), 
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu]), 
       hk.Sequential(
       [
        hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512), jax.nn.leaky_relu,
-       hk.Linear(512)]))
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu,
+       hk.Linear(256), jax.nn.leaky_relu]))
   net1 = jraph.GraphNetwork(
-      update_node_fn=node_update_fn,
-      update_edge_fn=edge_update_fn,
-      update_global_fn=update_global_fn)
+      update_node_fn=node_update_fn_skip,
+      update_edge_fn=edge_update_fn_skip,
+      update_global_fn=update_global_fn_skip)
   
-  """
+  
   net2 = jraph.GraphNetwork(
-    update_node_fn=node_update_fn,
-    update_edge_fn=edge_update_fn,
-    update_global_fn=update_global_fn)"""
+    update_node_fn=node_update_fn_skip,
+    update_edge_fn=edge_update_fn_skip,
+    update_global_fn=update_global_fn_skip)
+
   
   x1 = embedder(graph)
-  x2 = net1(x1)
+  x2 = net2(net1(x1))
   x3 = collector(x2)
 
   #return graph
@@ -440,15 +465,8 @@ if __name__ == '__main__':
       # Learning rate schedule: linear ramp-up and then constant
       num_epochs = 1000
       num_batches = len(X_train) // hp["batch_size"]
-      ramp_up_epochs = 5  # Number of epochs to linearly ramp up the learning rate
-      total_ramp_up_steps = ramp_up_epochs * num_batches
-      lr_schedule = optax.linear_schedule(init_value=1e-5, 
-                                          end_value =1e-3, 
-                                          transition_steps=total_ramp_up_steps)
-
-      # Optimizer
-      optimizer = optax.noisy_sgd(learning_rate=lr_schedule)
-      opt_state = optimizer.init(params)
+      opt_init, opt_update = optax.adam(1e-4)
+      opt_state = opt_init(params)
 
       compute_loss_fn = jax.jit(functools.partial(graph_loss_fn, net,label_types,label_nums))
       compute_accuracy_fn = jax.jit(functools.partial(graph_accuracy_fn, net,label_types,label_nums))
@@ -465,12 +483,29 @@ if __name__ == '__main__':
                   y_batch = y_train[batch_start:batch_end]
 
                   (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, pad_graph_to_nearest_power_of_two(jraph.batch(X_batch)), jnp.concatenate((jnp.array(y_batch), jnp.zeros((1,output_dim)))))
-                  updates, opt_state = optimizer.update(grad, opt_state)
+                  updates, opt_state = opt_update(grad, opt_state, params)
                   params = optax.apply_updates(params, updates)
                   training_acc.add_accuracy(accs)
+                  print(accs)
                   print("training accuracy: ", training_acc.get_weighted_average())
               
+              num_samples = jnp.array(y_val).shape[0] #targets always has a shape - no funky stuff
+              val_num_batches = -(-num_samples // hp["batch_size"])  # Ceiling division
+              
+              batch_accuracies = []
+              
+              for batch_idx in range(val_num_batches):
+                  start_idx = batch_idx * hp["batch_size"]
+                  end_idx = min((batch_idx + 1) * hp["batch_size"], num_samples)
+                  
+                  batch_accuracy = compute_accuracy_fn(params, rng, pad_graph_to_nearest_power_of_two(jraph.batch(X_val[start_idx:end_idx])), jnp.concatenate((jnp.array(y_val[start_idx:end_idx]), jnp.zeros((1,output_dim)))))
+                  batch_accuracies.append(batch_accuracy)
+              
+              # Stack the batch accuracies and take the mean
+              batch_accuracies = jnp.stack(batch_accuracies)
+              mean_accuracy = jnp.mean(batch_accuracies, axis=0)
 
+              print(f"Epoch {epoch}, Validation accuracy: {mean_accuracy}")
               # Save the training and validation loss - just validation, not implemented yet
       except KeyboardInterrupt:
           with open("CGNN.params", "wb") as f:
