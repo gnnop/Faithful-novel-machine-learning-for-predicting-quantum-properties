@@ -143,9 +143,7 @@ max_atoms_in_column = [292, 116, 84, 100, 120, 216, 256, 240, 192, 46, 52, 62, 4
 
 def extract_element_counts(poscar):
     m_elements = poscar[5].split()
-    print("elements done")
     m_counts = list(map(int, poscar[6].split()))
-    print("counts done")
     return dict(zip(m_elements, m_counts))
 
 def info(poscar):
@@ -157,7 +155,6 @@ def info(poscar):
     for a in atoms: # for each atom type
         element = a
         count   = atoms[a]
-        print(f"Atom: {element}\tCount: {count}")
         row, column, spin = atomToCoords(element)
         atoms_in_row[row] += count
         atoms_in_column[column] += count
