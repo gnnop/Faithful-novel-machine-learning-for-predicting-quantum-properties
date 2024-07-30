@@ -1,22 +1,22 @@
 from includes import *
 
+
 def info(poscar):
-    atoms = poscar[5].split()
+    poscar[5].split()
     numbs = poscar[6].split()
 
     total = 0
     for i in range(len(numbs)):
-        total+=int(numbs[i])
+        total += int(numbs[i])
         numbs[i] = total
 
-    
-    nodesArray = []
+    nodes_array = []
 
-    curIndx = 0
-    atomType = 0
+    cur_indx = 0
+    atom_type = 0
     for i in range(total):
-        curIndx+=1
-        if curIndx > numbs[atomType]:
-            atomType+=1
-        
-        nodesArray.append(unpackLine(poscar[8+i][0:3]))
+        cur_indx += 1
+        if cur_indx > numbs[atom_type]:
+            atom_type += 1
+
+        nodes_array.append(unpack_line(poscar[8 + i][0:3]))

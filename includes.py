@@ -4,20 +4,14 @@ import csv
 from os.path import exists
 import pickle
 
-# Paths to the directories
+# paths to the directories
 input_dir = './input'
 output_dir = './output'
-#The csvs are called from input and output,so pop up two places. poscars is from the model, so only pop up one
+#the csvs are called from input and output,so pop up two places. poscars is from the model, so only pop up one
 poscars = os.path.abspath(os.path.join(os.path.dirname(__file__), '../POSCAR/'))
 csvs = os.path.abspath(os.path.join(os.path.dirname(__file__), '../CSV/'))
 
 import importlib.util
-
-loss_classification = 0
-loss_regression = 1
-
-
-
 
 #ml libraries
 import math
@@ -33,7 +27,6 @@ from scipy.spatial.transform import Rotation as R
 import itertools
 from dataclasses import dataclass
 from multiprocessing import Pool, Manager
-from typing import Any, Callable, Dict, List, Optional, Tuple
 import functools
 from random import shuffle
 import re
@@ -53,12 +46,12 @@ Two global lists in the `includes` module store POSCAR data:
 * poscar_globals: data about the material. This is only the global axes of the material.
 * poscar_atomics: data about each atom contained by the material. This could encode each atoms' position or type or both.
 
-Other data can be an input (in the input/ folder) or an output (in the output/ folder). 
-All other data is global (i.e. it relates to the material as a whole).
+other data can be an input (in the input/ folder) or an output (in the output/ folder). 
+all other data is global (i.e. it relates to the material as a whole).
 * global_inputs is the list of all inputs
 * global_outputs is the list of all ouputs.
 
-Each list is an unsorted list of modules
+each list is an unsorted list of modules
 '''
 poscar_globals = []
 poscar_atomics = []
@@ -104,12 +97,12 @@ def unpackLine(str):
     x = str.split()[0:3]
     return list(map(float, x))
 
-def preprocessPoscar(id):
+def preprocess_poscar(id):
     poscar = open(poscars + "/" + str(id) + ".POSCAR", "r").read()
     inter = list(map(lambda a: a.strip(), poscar.split("\n")))
     return inter
 
-def getSetOfPoscars():
+def get_set_of_poscars():
     return set([x.split(".")[0] for x in os.listdir(poscars)])
 
 
@@ -168,11 +161,11 @@ relativeCoordinateLength = 5
 absoluteCoordinateLength = 2.0*5.0
 fourierFeaturesPeriodScale = 2.0
 
-def getRelativeCoordinates(val):
+def get_relative_coordinates(val):
     '''
-    This function is loosely inspired by the following paper:
-        Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains
-        by Matthew Tancik, Pratul P. Srinivasan, Ben Mildenhall, Sara Fridovich-Keil, Jonathan T. Barron, and Ren Ng
+    this function is loosely inspired by the following paper:
+        fourier features let networks learn high frequency functions in low dimensional domains
+        by matthew tancik, pratul p. srinivasan, ben mildenhall, sara fridovich-keil, jonathan t. barron, and ren ng
     '''
 
     return [
@@ -184,7 +177,7 @@ def getRelativeCoordinates(val):
         for i in range(int(relativeCoordinateLength))
     ]
 
-def getAbsoluteCoords(val, maxval = 10):
+def get_absolute_coords(val, maxval = 10):
     initialPeriod = maxval
     return [
         math.sin(
@@ -271,36 +264,38 @@ def partition_dataset(validation_percentage, *arrays):
     return (*train_sets, *val_sets)
 
 
-#Consider, adding in more customizeability
-def loss_fn(net, learning_type,learning_num, params, rng, inputs, targets):
+class EvaluationMethods:
+    @staticmethod
+    def regression(predictions, targets):
+        loss = jnp.mean((predictions - targets) ** 2)
+        accuracy = loss
+        return accuracy, loss
+    @staticmethod
+    def classification(predictions, targets):
+        loss = jnp.sum(optax.softmax_cross_entropy(predictions, targets))
+        accuracy = jnp.mean(jnp.argmax(predictions, axis=-1) == jnp.argmax(targets, axis=-1))
+        return accuracy, loss
+
+
+
+def loss_fn(net, evaluation_methods, learning_num, params, rng, inputs, targets):
     error = 0.0
     accuracy = jnp.array([])
     location = 0
-
     predictions = net.apply(params, rng, inputs,is_training=True)
 
-    for i in range(len(learning_type)):
-        if learning_type[i] == loss_regression:
-            miss = jnp.mean((predictions[:,location:location + learning_num[i]] - targets[:,location:location + learning_num[i]]) ** 2)
-            error += miss
-            accuracy = jnp.append(accuracy, miss)
-        elif learning_type[i] == loss_classification:
-            error += jnp.sum(optax.softmax_cross_entropy( predictions[:,location:location + learning_num[i]], targets[:,location:location + learning_num[i]]))
-            accuracy = jnp.append(accuracy, jnp.mean(jnp.argmax(predictions[:,location:location + learning_num[i]], axis=-1) == jnp.argmax(targets[:,location:location + learning_num[i]], axis=-1)))
-
+    for i in range(len(evaluation_methods)):
+        evaluation_method = evaluation_methods[i]
+        p = predictions[:,location:location + learning_num[i]]
+        t = targets[:,location:location + learning_num[i]]
+        a, l = evaluation_method(p, t)
+        error += l
+        accuracy = jnp.append(accuracy, a)
         location += learning_num[i]
     
     return error, accuracy
 
-#Only these functions get called on
-def accuracy_fn(net, learning_type, learning_num, params, rng, inputs, targets):
-    accuracy = jnp.array([])
-    location = 0
-    predictions = net.apply(params, rng, inputs,is_training=False)
-    for i in range(len(learning_type)):
-        if learning_type[i] == loss_regression:
-            accuracy = jnp.append(accuracy, jnp.mean((predictions[:,location:location + learning_num[i]] - targets[:,location:location + learning_num[i]]) ** 2))
-        elif learning_type[i] == loss_classification:
-            accuracy = jnp.append(accuracy, jnp.mean(jnp.argmax(predictions[:,location:location + learning_num[i]], axis=-1) == jnp.argmax(targets[:,location:location + learning_num[i]], axis=-1)))
-        location += learning_num[i]
-    return accuracy
+def accuracy_fn(net, evaluation_methods, learning_num, params, rng, inputs, targets):
+    _, a = loss_fn(net, evaluation_methods, learning_num, params, rng, inputs, targets)
+    return a
+

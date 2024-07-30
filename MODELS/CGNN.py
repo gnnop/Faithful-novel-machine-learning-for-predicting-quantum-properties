@@ -1,9 +1,13 @@
-import sys, os, shutil
+from includes import *
+import os
+import shutil
 
-if not __name__ == '__main__':
-  os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+if not __name__ == "__main__":
+    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 
-#standard thing that makes sure all dependencies resolve.
+# standard thing that makes sure all dependencies resolve.
+
+
 def copy_file_to_directories(filename, target_dirs):
     source_path = os.path.abspath(filename)
     print(f"Source path: {source_path}")
@@ -18,227 +22,315 @@ def copy_file_to_directories(filename, target_dirs):
         shutil.copy(source_path, target_path)
         print(f"Copied {source_path} to {target_path}")
 
-# Define the relative paths of the target directories
-target_directories = ['.', 'input', 'output']
-if __name__ == '__main__':
-    copy_file_to_directories('../includes.py', target_directories)
 
-#Now the rest of the file.
+# define the relative paths of the target directories
+target_directories = [".", "input", "output"]
+if __name__ == "__main__":
+    copy_file_to_directories("../includes.py", target_directories)
 
-from includes import *
-load_submodules() #this is a function in includes.py that loads all the submodules.
+# now the rest of the file.
+
+# this is a function in includes.py that loads all the submodules.
+load_submodules()
 
 
 # hyperparameters
 hp = {
     "dropoutRate": 0.1,
     "max_atoms": 40,
-    "batch_size": 32,#This is now baked into the preprocessing
-    "num_proc": 12,#This is the number of processes used in preprocessing
+    "batch_size": 32,  # this is now baked into the preprocessing
+    "num_proc": 12,  # this is the number of processes used in preprocessing
 }
 
-def GraphConvolution(update_node_fn: Callable,
-                     aggregate_nodes_fn: Callable = jax.ops.segment_sum,
-                     add_self_edges: bool = False,
-                     symmetric_normalization: bool = True) -> Callable:
-  """Returns a method that applies a Graph Convolution layer.
 
-  Graph Convolutional layer as in https://arxiv.org/abs/1609.02907,
-  NOTE: This implementation does not add an activation after aggregation.
-  If you are stacking layers, you may want to add an activation between
-  each layer.
-  Args:
-    update_node_fn: function used to update the nodes. In the paper a single
-      layer MLP is used.
-    aggregate_nodes_fn: function used to aggregates the sender nodes.
-    add_self_edges: whether to add self edges to nodes in the graph as in the
-      paper definition of GCN. Defaults to False.
-    symmetric_normalization: whether to use symmetric normalization. Defaults to
-      True.
+def graph_convolution(
+    update_node_fn: Callable,
+    aggregate_nodes_fn: Callable = jax.ops.segment_sum,
+    add_self_edges: bool = False,
+    symmetric_normalization: bool = True,
+) -> Callable:
+    """Returns a method that applies a Graph Convolution layer.
 
-  Returns:
-    A method that applies a Graph Convolution layer.
-  """
+    Graph Convolutional layer as in https://arxiv.org/abs/1609.02907,
+    NOTE: This implementation does not add an activation after aggregation.
+    If you are stacking layers, you may want to add an activation between
+    each layer.
+    Args:
+      update_node_fn: function used to update the nodes. In the paper a single
+        layer MLP is used.
+      aggregate_nodes_fn: function used to aggregates the sender nodes.
+      add_self_edges: whether to add self edges to nodes in the graph as in the
+        paper definition of GCN. Defaults to False.
+      symmetric_normalization: whether to use symmetric normalization. Defaults to
+        True.
 
-  def _ApplyGCN(graph: jraph.GraphsTuple) -> jraph.GraphsTuple:
-    """Applies a Graph Convolution layer."""
-    nodes, _, receivers, senders, _, _, _ = graph
+    Returns:
+      A method that applies a Graph Convolution layer.
+    """
 
-    # First pass nodes through the node updater.
-    nodes = update_node_fn(nodes)
-    # Equivalent to jnp.sum(n_node), but jittable
-    total_num_nodes = jax.tree_util.tree_leaves(nodes)[0].shape[0]
-    #In the original example, self-edges were included. 
-    #based on how I arranged the data, it shouldn't be necessary.
+    def _apply_gcn(graph: jraph.graphs_tuple) -> jraph.graphs_tuple:
+        """Applies a Graph Convolution layer."""
+        nodes, _, receivers, senders, _, _, _ = graph
 
-    conv_senders = senders
-    conv_receivers = receivers
+        # first pass nodes through the node updater.
+        nodes = update_node_fn(nodes)
+        # equivalent to jnp.sum(n_node), but jittable
+        total_num_nodes = jax.tree_util.tree_leaves(nodes)[0].shape[0]
+        # in the original example, self-edges were included.
+        # based on how i arranged the data, it shouldn't be necessary.
 
-    # pylint: disable=g-long-lambda
-    if symmetric_normalization:
-      # Calculate the normalization values.
-      count_edges = lambda x: jax.ops.segment_sum(
-          jnp.ones_like(conv_senders), x, total_num_nodes)
-      sender_degree = count_edges(conv_senders)
-      receiver_degree = count_edges(conv_receivers)
+        conv_senders = senders
+        conv_receivers = receivers
 
-      # Pre normalize by sqrt sender degree.
-      # Avoid dividing by 0 by taking maximum of (degree, 1).
-      nodes = jax.tree_util.tree_map(
-          lambda x: x * jax.lax.rsqrt(jnp.maximum(sender_degree, 1.0))[:, None],
-          nodes,
-      )
-      # Aggregate the pre-normalized nodes.
-      nodes = jax.tree_util.tree_map(
-          lambda x: aggregate_nodes_fn(x[conv_senders], conv_receivers,
-                                       total_num_nodes), nodes)
-      # Post normalize by sqrt receiver degree.
-      # Avoid dividing by 0 by taking maximum of (degree, 1).
-      nodes = jax.tree_util.tree_map(
-          lambda x:
-          (x * jax.lax.rsqrt(jnp.maximum(receiver_degree, 1.0))[:, None]),
-          nodes,
-      )
-    else:
-      nodes = jax.tree_util.tree_map(
-          lambda x: aggregate_nodes_fn(x[conv_senders], conv_receivers,
-                                       total_num_nodes), nodes)
-    # pylint: enable=g-long-lambda
-    return graph._replace(nodes=nodes)
+        # pylint: disable=g-long-lambda
+        if symmetric_normalization:
+            # Calculate the normalization values.
+            def count_edges(x):
+                return jax.ops.segment_sum(
+                    jnp.ones_like(conv_senders), x, total_num_nodes
+                )
 
-  return _ApplyGCN
+            sender_degree = count_edges(conv_senders)
+            receiver_degree = count_edges(conv_receivers)
+
+            # Pre normalize by sqrt sender degree.
+            # Avoid dividing by 0 by taking maximum of (degree, 1).
+            nodes = jax.tree_util.tree_map(
+                lambda x: x * jax.lax.rsqrt(jnp.maximum(sender_degree, 1.0))[:, None],
+                nodes,
+            )
+            # Aggregate the pre-normalized nodes.
+            nodes = jax.tree_util.tree_map(
+                lambda x: aggregate_nodes_fn(
+                    x[conv_senders], conv_receivers, total_num_nodes
+                ),
+                nodes,
+            )
+            # Post normalize by sqrt receiver degree.
+            # Avoid dividing by 0 by taking maximum of (degree, 1).
+            nodes = jax.tree_util.tree_map(
+                lambda x: (
+                    x * jax.lax.rsqrt(jnp.maximum(receiver_degree, 1.0))[:, None]
+                ),
+                nodes,
+            )
+        else:
+            nodes = jax.tree_util.tree_map(
+                lambda x: aggregate_nodes_fn(
+                    x[conv_senders], conv_receivers, total_num_nodes
+                ),
+                nodes,
+            )
+        # pylint: enable=g-long-lambda
+        return graph._replace(nodes=nodes)
+
+    return _ApplyGCN
+
 
 @jraph.concatenated_args
 def edge_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
-  """Edge update function for graph net."""
-  net = hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu])
-  return net(feats)
+    """Edge update function for graph net."""
+    net = hk.Sequential(
+        [
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+        ]
+    )
+    return net(feats)
 
-def edge_update_fn_skip(edges, sent_attributes, received_attributes, global_edge_attributes):
-  """Edge update function for graph net."""
-  combined_args = jax.tree_util.tree_flatten((edges, sent_attributes, received_attributes, global_edge_attributes))[0]
-  concat_args = jnp.concatenate(combined_args, axis=-1)
-  net = hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu])
-  return net(concat_args) + edges
+
+def edge_update_fn_skip(
+    edges, sent_attributes, received_attributes, global_edge_attributes
+):
+    """Edge update function for graph net."""
+    combined_args = jax.tree_util.tree_flatten(
+        (edges, sent_attributes, received_attributes, global_edge_attributes)
+    )[0]
+    concat_args = jnp.concatenate(combined_args, axis=-1)
+    net = hk.Sequential(
+        [
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+        ]
+    )
+    return net(concat_args) + edges
+
 
 @jraph.concatenated_args
 def node_update_fn(feats: jnp.ndarray) -> jnp.ndarray:
-  """Node update function for graph net."""
-  net = hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu])
-  return net(feats)
+    """Node update function for graph net."""
+    net = hk.Sequential(
+        [
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+        ]
+    )
+    return net(feats)
+
 
 def node_update_fn_skip(nodes, sent_attributes, received_attributes, global_attributes):
-  """Node update function for graph net."""
-  combined_args = jax.tree_util.tree_flatten((nodes, sent_attributes, received_attributes, global_attributes))[0]
-  concat_args = jnp.concatenate(combined_args, axis=-1)
-  net = hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu])
-  return net(concat_args) + nodes
+    """Node update function for graph net."""
+    combined_args = jax.tree_util.tree_flatten(
+        (nodes, sent_attributes, received_attributes, global_attributes)
+    )[0]
+    concat_args = jnp.concatenate(combined_args, axis=-1)
+    net = hk.Sequential(
+        [
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+        ]
+    )
+    return net(concat_args) + nodes
+
 
 @jraph.concatenated_args
 def update_global_fn(feats: jnp.ndarray) -> jnp.ndarray:
-  """Global update function for graph net."""
-  # MUTAG is a binary classification task, so output pos neg logits.
-  net = hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu])
-  return net(feats)
+    """Global update function for graph net."""
+    # MUTAG is a binary classification task, so output pos neg logits.
+    net = hk.Sequential(
+        [
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+        ]
+    )
+    return net(feats)
+
 
 def update_global_fn_skip(node_attributes, edge_attribtutes, globals_):
-  """Global update function for graph net."""
-  # MUTAG is a binary classification task, so output pos neg logits.
-  combined_args = jax.tree_util.tree_flatten((node_attributes, edge_attribtutes, globals_))[0]
-  concat_args = jnp.concatenate(combined_args, axis=-1)
-  net = hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu])
-  return net(concat_args) + globals_
+    """Global update function for graph net."""
+    # MUTAG is a binary classification task, so output pos neg logits.
+    combined_args = jax.tree_util.tree_flatten(
+        (node_attributes, edge_attribtutes, globals_)
+    )[0]
+    concat_args = jnp.concatenate(combined_args, axis=-1)
+    net = hk.Sequential(
+        [
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+            hk.Linear(256),
+            jax.nn.leaky_relu,
+        ]
+    )
+    return net(concat_args) + globals_
+
 
 def net_fn(graph, is_training=False, dropout_rate=0):
-  global globals
+    global globals
 
-  #The shape of the graph is wrong.
-  #The graph globals structure relies on the globals being in
-  #a matrix. Uhhhh
+    # The shape of the graph is wrong.
+    # The graph globals structure relies on the globals being in
+    # a matrix. Uhhhh
 
-  collector = jraph.GraphMapFeatures(
-    hk.Sequential(
-      [
-      hk.Linear(256)]),
-    hk.Sequential(
-      [
-      hk.Linear(256)]),
-    hk.Sequential(
-      [
-      hk.Linear(512), jax.nn.leaky_relu,
-      hk.Linear(256), jax.nn.leaky_relu,
-      hk.Linear(128), jax.nn.leaky_relu,
-      hk.Linear(output_dim)]))
+    collector = jraph.GraphMapFeatures(
+        hk.Sequential([hk.Linear(256)]),
+        hk.Sequential([hk.Linear(256)]),
+        hk.Sequential(
+            [
+                hk.Linear(512),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(128),
+                jax.nn.leaky_relu,
+                hk.Linear(output_dim),
+            ]
+        ),
+    )
 
-  embedder = jraph.GraphMapFeatures(
-      hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu]), 
-      hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu]), 
-      hk.Sequential(
-      [
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu,
-       hk.Linear(256), jax.nn.leaky_relu]))
-  net1 = jraph.GraphNetwork(
-      update_node_fn=node_update_fn_skip,
-      update_edge_fn=edge_update_fn_skip,
-      update_global_fn=update_global_fn_skip)
-  
-  
-  net2 = jraph.GraphNetwork(
-    update_node_fn=node_update_fn_skip,
-    update_edge_fn=edge_update_fn_skip,
-    update_global_fn=update_global_fn_skip)
+    embedder = jraph.GraphMapFeatures(
+        hk.Sequential(
+            [
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+            ]
+        ),
+        hk.Sequential(
+            [
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+            ]
+        ),
+        hk.Sequential(
+            [
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+                hk.Linear(256),
+                jax.nn.leaky_relu,
+            ]
+        ),
+    )
+    net1 = jraph.GraphNetwork(
+        update_node_fn=node_update_fn_skip,
+        update_edge_fn=edge_update_fn_skip,
+        update_global_fn=update_global_fn_skip,
+    )
 
-  
-  x1 = embedder(graph)
-  x2 = net2(net1(x1))
-  x3 = collector(x2)
+    net2 = jraph.GraphNetwork(
+        update_node_fn=node_update_fn_skip,
+        update_edge_fn=edge_update_fn_skip,
+        update_global_fn=update_global_fn_skip,
+    )
 
-  #return graph
-  return x3
+    x1 = embedder(graph)
+    x2 = net2(net1(x1))
+    x3 = collector(x2)
 
-output_dim = 0#initialize before calling the network
+    # return graph
+    return x3
+
+
+output_dim = 0  # initialize before calling the network
+
 
 def reflectAtomDist(lis):
     return map(lambda a: [a[0], -a[1], -a[2], -a[3]], lis)
@@ -246,108 +338,137 @@ def reflectAtomDist(lis):
 
 def atomDistance(params, loc1, loc2):
     global completeTernary
-    maxBondDistance = 3.1 #this seems to be reasonable, but the min problem is what to do with multiple bonding.
-    #I found a paper where they just ignore the problem, so that's the first approach here;
+    # this seems to be reasonable, but the min problem is what to do with
+    # multiple bonding.
+    maxBondDistance = 3.1
+    # I found a paper where they just ignore the problem, so that's the first
+    # approach here;
 
     dist = []
-    
-    for i in completeTernary:
-        dir = np.array(loc1) - np.array(loc2) + i[0]*np.array(params[0]) + i[1]*np.array(params[1]) + i[2]*np.array(params[2])
-        if np.linalg.norm(dir) < maxBondDistance:
-            dist.append([np.linalg.norm(dir),*dir])
-    
-    #Do I need the subtraction info?
+
+    for i in complete_ternary:
+        dir = (
+            np.array(loc1)
+            - np.array(loc2)
+            + i[0] * np.array(params[0])
+            + i[1] * np.array(params[1])
+            + i[2] * np.array(params[2])
+        )
+        if np.linalg.norm(dir) < max_bond_distance:
+            dist.append([np.linalg.norm(dir), *dir])
+
+    # do i need the subtraction info?
     return dist
 
+
 def _nearest_bigger_power_of_two(x: int) -> int:
-  """Computes the nearest power of two greater than x for padding."""
-  y = 2
-  while y < x:
-    y *= 2
-  return y
+    """Computes the nearest power of two greater than x for padding."""
+    y = 2
+    while y < x:
+        y *= 2
+    return y
+
 
 def pad_graph_to_nearest_power_of_two(
-    graphs_tuple: jraph.GraphsTuple) -> jraph.GraphsTuple:
-  """Pads a batched `GraphsTuple` to the nearest power of two"""
-  # Add 1 since we need at least one padding node for pad_with_graphs.
-  pad_nodes_to = _nearest_bigger_power_of_two(jnp.sum(graphs_tuple.n_node)) + 1
-  pad_edges_to = _nearest_bigger_power_of_two(jnp.sum(graphs_tuple.n_edge))
-  # Add 1 since we need at least one padding graph for pad_with_graphs.
-  # We do not pad to nearest power of two because the batch size is fixed.
-  pad_graphs_to = graphs_tuple.n_node.shape[0] + 1
-  return jraph.pad_with_graphs(graphs_tuple, pad_nodes_to, pad_edges_to,
-                               pad_graphs_to)
+    graphs_tuple: jraph.graphs_tuple,
+) -> jraph.graphs_tuple:
+    """Pads a batched `GraphsTuple` to the nearest power of two"""
+    # add 1 since we need at least one padding node for pad_with_graphs.
+    pad_nodes_to = _nearest_bigger_power_of_two(jnp.sum(graphs_tuple.n_node)) + 1
+    pad_edges_to = _nearest_bigger_power_of_two(jnp.sum(graphs_tuple.n_edge))
+    # add 1 since we need at least one padding graph for pad_with_graphs.
+    # we do not pad to nearest power of two because the batch size is fixed.
+    pad_graphs_to = graphs_tuple.n_node.shape[0] + 1
+    return jraph.pad_with_graphs(
+        graphs_tuple, pad_nodes_to, pad_edges_to, pad_graphs_to
+    )
 
-def extractGraph(atomic_encoding, absolute_position, glob, label_size, axes):
-    globalData = [0.0]*(len(glob) + label_size)
-    globalData[0:len(glob)] = glob
 
-    nodesArray = atomic_encoding
+def extract_graph(atomic_encoding, absolute_position, glob, label_size, axes):
+    global_data = [0.0] * (len(glob) + label_size)
+    global_data[0 : len(glob)] = glob
 
-    
-    #Now we do an n^2 operation on the atoms:
+    nodes_array = atomic_encoding
 
-    senderArray = []
-    receiverArray = []
-    edgeFeatures = []
+    # now we do an n^2 operation on the atoms:
+
+    sender_array = []
+    receiver_array = []
+    edge_features = []
 
     for i in range(len(absolute_position)):
         for j in range(i + 1):
-            ls = atomDistance(axes, absolute_position[i], absolute_position[j])
-            #This is a list of
-            senderArray.extend([i]*len(ls))
-            receiverArray.extend([j]*len(ls))
-            edgeFeatures.extend(ls)
+            ls = atom_distance(axes, absolute_position[i], absolute_position[j])
+            # this is a list of
+            sender_array.extend([i] * len(ls))
+            receiver_array.extend([j] * len(ls))
+            edge_features.extend(ls)
             if i != j:
-                senderArray.extend([j]*len(ls))
-                receiverArray.extend([j]*len(ls))
-                edgeFeatures.extend(reflectAtomDist(ls))
+                sender_array.extend([j] * len(ls))
+                receiver_array.extend([j] * len(ls))
+                edge_features.extend(reflect_atom_dist(ls))
 
-    #everything should be lined up now, but we need to add it to a graph
+    # everything should be lined up now, but we need to add it to a graph
 
-    return jraph.GraphsTuple(
-        nodes=jnp.array(nodesArray), 
-        senders=jnp.array(senderArray), 
-        receivers=jnp.array(receiverArray), 
-        edges=jnp.array(edgeFeatures), 
-        globals=jnp.array([globalData]),
-        n_node=jnp.array([len(nodesArray)]),
-        n_edge=jnp.array([len(senderArray)]))
+    return jraph.graphs_tuple(
+        nodes=jnp.array(nodes_array),
+        senders=jnp.array(sender_array),
+        receivers=jnp.array(receiver_array),
+        edges=jnp.array(edge_features),
+        globals=jnp.array([global_data]),
+        n_node=jnp.array([len(nodes_array)]),
+        n_edge=jnp.array([len(sender_array)]),
+    )
 
-def getGlobalDataVector(poscar):
-    return np.array([unpackLine(poscar[2]), unpackLine(poscar[3]), unpackLine(poscar[4])])
 
-def processGraphBatch(graph):
-  poscar = preprocessPoscar(graph)
-  numbs = poscar[6].split()
+def get_global_data_vector(poscar):
+    return np.array(
+        [unpack_line(poscar[2]), unpack_line(poscar[3]), unpack_line(poscar[4])]
+    )
 
-  total = 0
-  for ii in range(len(numbs)):
-    total+=int(numbs[ii])
-    numbs[ii] = total
 
-  #fixed dimensional
-  axes_ = getGlobalDataVector(poscar)
-  pi_ = flatten([poscar_global.info(poscar) for poscar_global in poscar_globals] + [global_input.info(graph) for global_input in global_inputs])
-  inputs_ = np.array([sum(items, []) for items in zip(*[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics])])
-  positions_ = [np.matmul(unpackLine(poscar[8+ii]), axes_) for ii in range(total)]
+def process_graph_batch(graph):
+    poscar = preprocess_poscar(graph)
+    numbs = poscar[6].split()
 
-  #fixed dimensional
-  go_ = []
-  for func in range(len(global_outputs)):
-    go_.append(global_outputs[func].info(graph))
-  go_ = sum(go_, [])
+    total = 0
+    for ii in range(len(numbs)):
+        total += int(numbs[ii])
+        numbs[ii] = total
 
-  graph_ = extractGraph(inputs_, positions_, pi_, len(go_), axes_)
+    # fixed dimensional
+    axes_ = get_global_data_vector(poscar)
+    pi_ = flatten(
+        [poscar_global.info(poscar) for poscar_global in poscar_globals]
+        + [global_input.info(graph) for global_input in global_inputs]
+    )
+    inputs_ = np.array(
+        [
+            sum(items, [])
+            for items in zip(
+                *[poscar_atomic.info(poscar) for poscar_atomic in poscar_atomics]
+            )
+        ]
+    )
+    positions_ = [np.matmul(unpack_line(poscar[8 + ii]), axes_) for ii in range(total)]
 
-  return graph_, go_
+    # fixed dimensional
+    go_ = []
+    for func in range(len(global_outputs)):
+        go_.append(global_outputs[func].info(graph))
+    go_ = sum(go_, [])
 
-def graph_loss_fn(net, learning_type,learning_num, params, rng, inputs, targets):
+    graph_ = extract_graph(inputs_, positions_, pi_, len(go_), axes_)
+
+    return graph_, go_
+
+
+def graph_loss_fn(net, learning_type, learning_num, params, rng, inputs, targets):
     error = 0.0
     accuracy = jnp.array([])
     location = 0
 
-    prediction_graph = net.apply(params, rng, inputs,is_training=True)
+    prediction_graph = net.apply(params, rng, inputs, is_training=True)
 
     predictions = prediction_graph.globals
 
@@ -355,163 +476,259 @@ def graph_loss_fn(net, learning_type,learning_num, params, rng, inputs, targets)
 
     for i in range(len(learning_type)):
         if learning_type[i] == loss_regression:
-            miss = (jnp.sum(mask) / mask.shape[0]) * jnp.mean(mask[:, None] * (predictions[:,location:location + learning_num[i]] - targets[:,location:location + learning_num[i]]) ** 2)
+            miss = (jnp.sum(mask) / mask.shape[0]) * jnp.mean(
+                mask[:, none]
+                * (
+                    predictions[:, location : location + learning_num[i]]
+                    - targets[:, location : location + learning_num[i]]
+                )
+                ** 2
+            )
             error += miss
             accuracy = jnp.append(accuracy, miss)
         elif learning_type[i] == loss_classification:
-            error += jnp.sum(optax.softmax_cross_entropy( predictions[:,location:location + learning_num[i]], mask[:, None] * targets[:,location:location + learning_num[i]]))
-            accuracy = jnp.append(accuracy, (jnp.sum(mask) / mask.shape[0]) * jnp.mean(mask * (jnp.argmax(predictions[:,location:location + learning_num[i]], axis=-1) == jnp.argmax(targets[:,location:location + learning_num[i]], axis=-1))))
+            error += jnp.sum(
+                optax.softmax_cross_entropy(
+                    predictions[:, location : location + learning_num[i]],
+                    mask[:, none] * targets[:, location : location + learning_num[i]],
+                )
+            )
+            accuracy = jnp.append(
+                accuracy,
+                (jnp.sum(mask) / mask.shape[0])
+                * jnp.mean(
+                    mask
+                    * (
+                        jnp.argmax(
+                            predictions[:, location : location + learning_num[i]],
+                            axis=-1,
+                        )
+                        == jnp.argmax(
+                            targets[:, location : location + learning_num[i]], axis=-1
+                        )
+                    )
+                ),
+            )
 
         location += learning_num[i]
-    
+
     return error, accuracy
 
-#Only these functions get called on
+
+# only these functions get called on
+
+
 def graph_accuracy_fn(net, learning_type, learning_num, params, rng, inputs, targets):
     accuracy = jnp.array([])
     location = 0
-    prediction_graph = net.apply(params, rng, inputs,is_training=False)
+    prediction_graph = net.apply(params, rng, inputs, is_training=False)
     predictions = prediction_graph.globals
 
     mask = jraph.get_graph_padding_mask(prediction_graph)
     for i in range(len(learning_type)):
         if learning_type[i] == loss_regression:
-            accuracy = jnp.append(accuracy, (jnp.sum(mask) / mask.shape[0]) * jnp.mean(mask[:, None] * (predictions[:,location:location + learning_num[i]] - targets[:,location:location + learning_num[i]]) ** 2))
+            accuracy = jnp.append(
+                accuracy,
+                (jnp.sum(mask) / mask.shape[0])
+                * jnp.mean(
+                    mask[:, none]
+                    * (
+                        predictions[:, location : location + learning_num[i]]
+                        - targets[:, location : location + learning_num[i]]
+                    )
+                    ** 2
+                ),
+            )
         elif learning_type[i] == loss_classification:
-            accuracy = jnp.append(accuracy, (jnp.sum(mask) / mask.shape[0]) * jnp.mean(mask * (jnp.argmax(predictions[:,location:location + learning_num[i]], axis=-1) == jnp.argmax(targets[:,location:location + learning_num[i]], axis=-1))))
+            accuracy = jnp.append(
+                accuracy,
+                (jnp.sum(mask) / mask.shape[0])
+                * jnp.mean(
+                    mask
+                    * (
+                        jnp.argmax(
+                            predictions[:, location : location + learning_num[i]],
+                            axis=-1,
+                        )
+                        == jnp.argmax(
+                            targets[:, location : location + learning_num[i]], axis=-1
+                        )
+                    )
+                ),
+            )
         location += learning_num[i]
     return accuracy
 
-if __name__ == '__main__':
-  if not exists("CGNN.pickle"):
 
-      #the atomic embeddings are assumed to be both input and available for all
-      #poscar files. The global embeddings are assumed to not exist for all elements.
-      #The poscar_globals is just the cell size. The others should be obvious.
+if __name__ == "__main__":
+    if not exists("CGNN.pickle"):
 
-      #Print the number of poscars total:
-      setOfAllPoscars = getSetOfPoscars()
-      print("There are", len(setOfAllPoscars), "poscars total.")
+        # the atomic embeddings are assumed to be both input and available for all
+        # poscar files. the global embeddings are assumed to not exist for all elements.
+        # the poscar_globals is just the cell size. the others should be
+        # obvious.
 
-      ids = set.intersection(*flatten([i.valid_ids() for i in global_inputs] + [i.valid_ids() for i in global_outputs]))
+        # print the number of poscars total:
+        set_of_all_poscars = get_set_of_poscars()
+        print("There are", len(set_of_all_poscars), "poscars total.")
 
-      print("There are", len(ids), "poscars with all inputs and outputs.")
+        ids = set.intersection(
+            *flatten(
+                [i.valid_ids() for i in global_inputs]
+                + [i.valid_ids() for i in global_outputs]
+            )
+        )
 
-      #There are how many poscars missing:
-      ids = set.intersection(ids, setOfAllPoscars)
-      print("There are", len(ids), "poscars with all inputs and outputs and all poscars.")
+        print("There are", len(ids), "poscars with all inputs and outputs.")
 
+        # there are how many poscars missing:
+        ids = set.intersection(ids, set_of_all_poscars)
+        print(
+            "There are",
+            len(ids),
+            "poscars with all inputs and outputs and all poscars.",
+        )
 
-      data = []
-      labels = []
-      go_types = [i.classifier() for i in global_outputs]
-      go_nums = [len(i.info(str(1))) for i in global_outputs]
+        data = []
+        labels = []
+        go_types = [i.classifier() for i in global_outputs]
+        go_nums = [len(i.info(str(1))) for i in global_outputs]
 
-      def accumulate_data(args):
-        global data
-        global labels
+        def accumulate_data(args):
+            global data
+            global labels
 
-        #if len(data) % 100 == 0:
-        print(len(data), "batches processed")
-          
-        data.append(args[0])
-        labels.append(args[1])
+            # if len(data) % 100 == 0:
+            print(len(data), "batches processed")
 
-      pool = Pool(processes=hp["num_proc"])
-      #Was going to batch the graphs, but padding them is incredibly memory intensive
+            data.append(args[0])
+            labels.append(args[1])
 
-      for index in list(ids):
-          pool.apply_async( processGraphBatch, args=(index,) , callback=accumulate_data )
+        pool = Pool(processes=hp["num_proc"])
+        # was going to batch the graphs, but padding them is incredibly memory
+        # intensive
 
-      pool.close()
-      pool.join()
+        for index in list(ids):
+            pool.apply_async(process_graph_batch, args=(index,), callback=accumulate_data)
 
-      with open("CGNN.pickle", "wb") as f:
-          pickle.dump({
-              "data": data,
-              "labels": labels,
-              "labels_types": go_types,
-              "labels_nums": go_nums
-          },f)
+        pool.close()
+        pool.join()
 
+        with open("CGNN.pickle", "wb") as f:
+            pickle.dump(
+                {
+                    "data": data,
+                    "labels": labels,
+                    "labels_types": go_types,
+                    "labels_nums": go_nums,
+                },
+                f,
+            )
 
-  with open("CGNN.pickle", "rb") as f:
-      data = pickle.load(f)
-      inputs = data["data"]
-      labels = data["labels"]
-      label_types = data["labels_types"]
-      label_nums = data["labels_nums"]
+    with open("CGNN.pickle", "rb") as f:
+        data = pickle.load(f)
+        inputs = data["data"]
+        labels = data["labels"]
+        label_types = data["labels_types"]
+        label_nums = data["labels_nums"]
 
-      output_dim = sum(label_nums)
+        output_dim = sum(label_nums)
 
+        # split the data into training and validation sets
+        # x_train, y_train, add_train, x_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
+        x_train, y_train, x_val, y_val = partition_dataset(0.1, inputs, labels)
 
-      # Split the data into training and validation sets
-      ##X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
-      X_train, y_train, X_val, y_val = partition_dataset(0.1, inputs, labels)
+        # now, attempt to load the model cgnn.params if it exists, otherwise init with haiku
+        # initialize the network
+        net = hk.transform(net_fn)
+        rng = jax.random.prng_key(0x09_f911029_d74_e35_bd84156_c5635688_c0 % 2**32)
+        init_rng, train_rng = jax.random.split(rng)
+        params = net.init(init_rng, x_train[0], is_training=True)
+        if exists("CGNN.params"):
+            with open("CGNN.params", "rb") as f:
+                params = pickle.load(f)
+            print("Loaded model from CGNN.params")
 
-      #Now, attempt to load the model CGNN.params if it exists, otherwise init with haiku
-      # Initialize the network
-      net = hk.transform(net_fn)
-      rng = jax.random.PRNGKey(0x09F911029D74E35BD84156C5635688C0 % 2**32)
-      init_rng, train_rng = jax.random.split(rng)
-      params = net.init(init_rng, X_train[0], is_training=True)
-      if exists("CGNN.params"):
-          with open("CGNN.params", "rb") as f:
-              params = pickle.load(f)
-          print("Loaded model from CGNN.params")
+        # create the optimizer
+        # learning rate schedule: linear ramp-up and then constant
+        num_epochs = 1000
+        num_batches = len(x_train) // hp["batch_size"]
+        opt_init, opt_update = optax.adam(1e-4)
+        opt_state = opt_init(params)
 
-      
-      # Create the optimizer
-      # Learning rate schedule: linear ramp-up and then constant
-      num_epochs = 1000
-      num_batches = len(X_train) // hp["batch_size"]
-      opt_init, opt_update = optax.adam(1e-4)
-      opt_state = opt_init(params)
+        compute_loss_fn = jax.jit(
+            functools.partial(graph_loss_fn, net, label_types, label_nums)
+        )
+        compute_accuracy_fn = jax.jit(
+            functools.partial(graph_accuracy_fn, net, label_types, label_nums)
+        )
 
-      compute_loss_fn = jax.jit(functools.partial(graph_loss_fn, net,label_types,label_nums))
-      compute_accuracy_fn = jax.jit(functools.partial(graph_accuracy_fn, net,label_types,label_nums))
+        try:
+            training_acc = ExponentialDecayWeighting(0.99)
+            for epoch in range(num_epochs):
+                for i in range(num_batches):
+                    batch_rng = jax.random.fold_in(train_rng, i)
+                    batch_start, batch_end = (
+                        i * hp["batch_size"],
+                        (i + 1) * hp["batch_size"],
+                    )
+                    x_batch = x_train[batch_start:batch_end]
+                    y_batch = y_train[batch_start:batch_end]
 
+                    (loss, accs), grad = jax.value_and_grad(
+                        compute_loss_fn, has_aux=True
+                    )(
+                        params,
+                        rng,
+                        pad_graph_to_nearest_power_of_two(jraph.batch(x_batch)),
+                        jnp.concatenate(
+                            (jnp.array(y_batch), jnp.zeros((1, output_dim)))
+                        ),
+                    )
+                    updates, opt_state = opt_update(grad, opt_state, params)
+                    params = optax.apply_updates(params, updates)
+                    training_acc.add_accuracy(accs)
+                    print(accs)
+                    print("training accuracy: ", training_acc.get_weighted_average())
 
+                # targets always has a shape - no funky stuff
+                num_samples = jnp.array(y_val).shape[0]
+                # ceiling division
+                val_num_batches = -(-num_samples // hp["batch_size"])
 
-      try:
-          training_acc = ExponentialDecayWeighting(0.99)
-          for epoch in range(num_epochs):
-              for i in range(num_batches):
-                  batch_rng = jax.random.fold_in(train_rng, i)
-                  batch_start, batch_end = i * hp["batch_size"], (i + 1) * hp["batch_size"]
-                  X_batch = X_train[batch_start:batch_end]
-                  y_batch = y_train[batch_start:batch_end]
+                batch_accuracies = []
 
-                  (loss, accs), grad = jax.value_and_grad(compute_loss_fn, has_aux=True)(params, rng, pad_graph_to_nearest_power_of_two(jraph.batch(X_batch)), jnp.concatenate((jnp.array(y_batch), jnp.zeros((1,output_dim)))))
-                  updates, opt_state = opt_update(grad, opt_state, params)
-                  params = optax.apply_updates(params, updates)
-                  training_acc.add_accuracy(accs)
-                  print(accs)
-                  print("training accuracy: ", training_acc.get_weighted_average())
-              
-              num_samples = jnp.array(y_val).shape[0] #targets always has a shape - no funky stuff
-              val_num_batches = -(-num_samples // hp["batch_size"])  # Ceiling division
-              
-              batch_accuracies = []
-              
-              for batch_idx in range(val_num_batches):
-                  start_idx = batch_idx * hp["batch_size"]
-                  end_idx = min((batch_idx + 1) * hp["batch_size"], num_samples)
-                  
-                  batch_accuracy = compute_accuracy_fn(params, rng, pad_graph_to_nearest_power_of_two(jraph.batch(X_val[start_idx:end_idx])), jnp.concatenate((jnp.array(y_val[start_idx:end_idx]), jnp.zeros((1,output_dim)))))
-                  batch_accuracies.append(batch_accuracy)
-              
-              # Stack the batch accuracies and take the mean
-              batch_accuracies = jnp.stack(batch_accuracies)
-              mean_accuracy = jnp.mean(batch_accuracies, axis=0)
+                for batch_idx in range(val_num_batches):
+                    start_idx = batch_idx * hp["batch_size"]
+                    end_idx = min((batch_idx + 1) * hp["batch_size"], num_samples)
 
-              print(f"Epoch {epoch}, Validation accuracy: {mean_accuracy}")
-              # Save the training and validation loss - just validation, not implemented yet
-      except KeyboardInterrupt:
-          with open("CGNN.params", "wb") as f:
-              pickle.dump(params, f)
-          print("Keyboard interrupt, saving model")
-      
-      with open("CGNN.params", "wb") as f:
-          pickle.dump(params, f)
-      print("Done training")
+                    batch_accuracy = compute_accuracy_fn(
+                        params,
+                        rng,
+                        pad_graph_to_nearest_power_of_two(
+                            jraph.batch(x_val[start_idx:end_idx])
+                        ),
+                        jnp.concatenate(
+                            (
+                                jnp.array(y_val[start_idx:end_idx]),
+                                jnp.zeros((1, output_dim)),
+                            )
+                        ),
+                    )
+                    batch_accuracies.append(batch_accuracy)
+
+                # stack the batch accuracies and take the mean
+                batch_accuracies = jnp.stack(batch_accuracies)
+                mean_accuracy = jnp.mean(batch_accuracies, axis=0)
+
+                print(f"Epoch {epoch}, Validation accuracy: {mean_accuracy}")
+                # save the training and validation loss - just validation, not
+                # implemented yet
+        except keyboard_interrupt:
+            with open("CGNN.params", "wb") as f:
+                pickle.dump(params, f)
+            print("Keyboard interrupt, saving model")
+
+        with open("CGNN.params", "wb") as f:
+            pickle.dump(params, f)
+        print("Done training")
