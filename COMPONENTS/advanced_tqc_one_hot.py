@@ -1,7 +1,7 @@
 from includes import *
 
 # create an instance of the loader to keep the csv loaded
-csv_loader = CSVLoader("advanced_tqc.csv")
+csv_loader = CSVLoader("tqc.csv")
 
 
 def classifier():
