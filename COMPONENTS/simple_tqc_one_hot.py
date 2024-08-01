@@ -1,6 +1,6 @@
 from includes import *
 # Create an instance of the loader to keep the CSV loaded
-csv_loader = CSVLoader('advanced_tqc.csv')
+csv_loader = CSVLoader('tqc.csv')
 
 # Functions to be used in another module
 def valid_ids():
