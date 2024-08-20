@@ -1,6 +1,4 @@
-from includes import *
-import os
-import shutil
+import sys, os, shutil
 
 if not __name__ == "__main__":
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
@@ -31,100 +29,20 @@ if __name__ == "__main__":
 # now the rest of the file.
 
 # this is a function in includes.py that loads all the submodules.
+from includes import *
 load_submodules()
 
+if __name__ == '__main__':
+    jax.config.update("jax_enable_x64", False)
 
 # hyperparameters
 hp = {
     "dropoutRate": 0.1,
     "max_atoms": 40,
     "batch_size": 32,  # this is now baked into the preprocessing
-    "num_proc": 12,  # this is the number of processes used in preprocessing
+    "num_proc": 8,  # this is the number of processes used in preprocessing
+    "atom_dist": 4,#This is the distance under which atoms are connected by an edge.
 }
-
-
-def graph_convolution(
-    update_node_fn: Callable,
-    aggregate_nodes_fn: Callable = jax.ops.segment_sum,
-    add_self_edges: bool = False,
-    symmetric_normalization: bool = True,
-) -> Callable:
-    """Returns a method that applies a Graph Convolution layer.
-
-    Graph Convolutional layer as in https://arxiv.org/abs/1609.02907,
-    NOTE: This implementation does not add an activation after aggregation.
-    If you are stacking layers, you may want to add an activation between
-    each layer.
-    Args:
-      update_node_fn: function used to update the nodes. In the paper a single
-        layer MLP is used.
-      aggregate_nodes_fn: function used to aggregates the sender nodes.
-      add_self_edges: whether to add self edges to nodes in the graph as in the
-        paper definition of GCN. Defaults to False.
-      symmetric_normalization: whether to use symmetric normalization. Defaults to
-        True.
-
-    Returns:
-      A method that applies a Graph Convolution layer.
-    """
-
-    def _apply_gcn(graph: jraph.graphs_tuple) -> jraph.graphs_tuple:
-        """Applies a Graph Convolution layer."""
-        nodes, _, receivers, senders, _, _, _ = graph
-
-        # first pass nodes through the node updater.
-        nodes = update_node_fn(nodes)
-        # equivalent to jnp.sum(n_node), but jittable
-        total_num_nodes = jax.tree_util.tree_leaves(nodes)[0].shape[0]
-        # in the original example, self-edges were included.
-        # based on how i arranged the data, it shouldn't be necessary.
-
-        conv_senders = senders
-        conv_receivers = receivers
-
-        # pylint: disable=g-long-lambda
-        if symmetric_normalization:
-            # Calculate the normalization values.
-            def count_edges(x):
-                return jax.ops.segment_sum(
-                    jnp.ones_like(conv_senders), x, total_num_nodes
-                )
-
-            sender_degree = count_edges(conv_senders)
-            receiver_degree = count_edges(conv_receivers)
-
-            # Pre normalize by sqrt sender degree.
-            # Avoid dividing by 0 by taking maximum of (degree, 1).
-            nodes = jax.tree_util.tree_map(
-                lambda x: x * jax.lax.rsqrt(jnp.maximum(sender_degree, 1.0))[:, None],
-                nodes,
-            )
-            # Aggregate the pre-normalized nodes.
-            nodes = jax.tree_util.tree_map(
-                lambda x: aggregate_nodes_fn(
-                    x[conv_senders], conv_receivers, total_num_nodes
-                ),
-                nodes,
-            )
-            # Post normalize by sqrt receiver degree.
-            # Avoid dividing by 0 by taking maximum of (degree, 1).
-            nodes = jax.tree_util.tree_map(
-                lambda x: (
-                    x * jax.lax.rsqrt(jnp.maximum(receiver_degree, 1.0))[:, None]
-                ),
-                nodes,
-            )
-        else:
-            nodes = jax.tree_util.tree_map(
-                lambda x: aggregate_nodes_fn(
-                    x[conv_senders], conv_receivers, total_num_nodes
-                ),
-                nodes,
-            )
-        # pylint: enable=g-long-lambda
-        return graph._replace(nodes=nodes)
-
-    return _ApplyGCN
 
 
 @jraph.concatenated_args
@@ -325,36 +243,24 @@ def net_fn(graph, is_training=False, dropout_rate=0):
     x2 = net2(net1(x1))
     x3 = collector(x2)
 
-    # return graph
-    return x3
+    # return graph minus the fake one
+    return x3[0:-1, ...]
 
 
 output_dim = 0  # initialize before calling the network
 
 
-def reflectAtomDist(lis):
+def reflect_atom_dist(lis):
     return map(lambda a: [a[0], -a[1], -a[2], -a[3]], lis)
 
 
-def atomDistance(params, loc1, loc2):
-    global completeTernary
-    # this seems to be reasonable, but the min problem is what to do with
-    # multiple bonding.
-    maxBondDistance = 3.1
-    # I found a paper where they just ignore the problem, so that's the first
-    # approach here;
-
+def atom_distance(axes, loc1, loc2):
     dist = []
 
     for i in complete_ternary:
-        dir = (
-            np.array(loc1)
-            - np.array(loc2)
-            + i[0] * np.array(params[0])
-            + i[1] * np.array(params[1])
-            + i[2] * np.array(params[2])
-        )
-        if np.linalg.norm(dir) < max_bond_distance:
+        dir = np.array(loc1) - np.array(loc2) + np.matmul(i, axes)
+
+        if np.linalg.norm(dir) < hp["atom_dist"]:
             dist.append([np.linalg.norm(dir), *dir])
 
     # do i need the subtraction info?
@@ -369,6 +275,8 @@ def _nearest_bigger_power_of_two(x: int) -> int:
     return y
 
 
+#graph creation things ALWAYS only appends one graph
+#This is important for the masking operation.
 def pad_graph_to_nearest_power_of_two(
     graphs_tuple: jraph.graphs_tuple,
 ) -> jraph.graphs_tuple:
@@ -397,7 +305,7 @@ def extract_graph(atomic_encoding, absolute_position, glob, label_size, axes):
     edge_features = []
 
     for i in range(len(absolute_position)):
-        for j in range(i + 1):
+        for j in range(i+1):
             ls = atom_distance(axes, absolute_position[i], absolute_position[j])
             # this is a list of
             sender_array.extend([i] * len(ls))
@@ -405,7 +313,7 @@ def extract_graph(atomic_encoding, absolute_position, glob, label_size, axes):
             edge_features.extend(ls)
             if i != j:
                 sender_array.extend([j] * len(ls))
-                receiver_array.extend([j] * len(ls))
+                receiver_array.extend([i] * len(ls))
                 edge_features.extend(reflect_atom_dist(ls))
 
     # everything should be lined up now, but we need to add it to a graph
@@ -463,103 +371,6 @@ def process_graph_batch(graph):
     return graph_, go_
 
 
-def graph_loss_fn(net, learning_type, learning_num, params, rng, inputs, targets):
-    error = 0.0
-    accuracy = jnp.array([])
-    location = 0
-
-    prediction_graph = net.apply(params, rng, inputs, is_training=True)
-
-    predictions = prediction_graph.globals
-
-    mask = jraph.get_graph_padding_mask(prediction_graph)
-
-    for i in range(len(learning_type)):
-        if learning_type[i] == loss_regression:
-            miss = (jnp.sum(mask) / mask.shape[0]) * jnp.mean(
-                mask[:, none]
-                * (
-                    predictions[:, location : location + learning_num[i]]
-                    - targets[:, location : location + learning_num[i]]
-                )
-                ** 2
-            )
-            error += miss
-            accuracy = jnp.append(accuracy, miss)
-        elif learning_type[i] == loss_classification:
-            error += jnp.sum(
-                optax.softmax_cross_entropy(
-                    predictions[:, location : location + learning_num[i]],
-                    mask[:, none] * targets[:, location : location + learning_num[i]],
-                )
-            )
-            accuracy = jnp.append(
-                accuracy,
-                (jnp.sum(mask) / mask.shape[0])
-                * jnp.mean(
-                    mask
-                    * (
-                        jnp.argmax(
-                            predictions[:, location : location + learning_num[i]],
-                            axis=-1,
-                        )
-                        == jnp.argmax(
-                            targets[:, location : location + learning_num[i]], axis=-1
-                        )
-                    )
-                ),
-            )
-
-        location += learning_num[i]
-
-    return error, accuracy
-
-
-# only these functions get called on
-
-
-def graph_accuracy_fn(net, learning_type, learning_num, params, rng, inputs, targets):
-    accuracy = jnp.array([])
-    location = 0
-    prediction_graph = net.apply(params, rng, inputs, is_training=False)
-    predictions = prediction_graph.globals
-
-    mask = jraph.get_graph_padding_mask(prediction_graph)
-    for i in range(len(learning_type)):
-        if learning_type[i] == loss_regression:
-            accuracy = jnp.append(
-                accuracy,
-                (jnp.sum(mask) / mask.shape[0])
-                * jnp.mean(
-                    mask[:, none]
-                    * (
-                        predictions[:, location : location + learning_num[i]]
-                        - targets[:, location : location + learning_num[i]]
-                    )
-                    ** 2
-                ),
-            )
-        elif learning_type[i] == loss_classification:
-            accuracy = jnp.append(
-                accuracy,
-                (jnp.sum(mask) / mask.shape[0])
-                * jnp.mean(
-                    mask
-                    * (
-                        jnp.argmax(
-                            predictions[:, location : location + learning_num[i]],
-                            axis=-1,
-                        )
-                        == jnp.argmax(
-                            targets[:, location : location + learning_num[i]], axis=-1
-                        )
-                    )
-                ),
-            )
-        location += learning_num[i]
-    return accuracy
-
-
 if __name__ == "__main__":
     if not exists("CGNN.pickle"):
 
@@ -594,15 +405,24 @@ if __name__ == "__main__":
         go_types = [i.classifier() for i in global_outputs]
         go_nums = [len(i.info(str(1))) for i in global_outputs]
 
+        data_batch = []
+        label_batch = []
+
         def accumulate_data(args):
             global data
             global labels
+            global data_batch
+            global label_batch
 
-            # if len(data) % 100 == 0:
-            print(len(data), "batches processed")
+            data_batch.append(args[0])
+            label_batch.append(args[1])
 
-            data.append(args[0])
-            labels.append(args[1])
+            if len(data_batch) == hp["batch_size"]:
+                data.append(pad_graph_to_nearest_power_of_two(jraph.batch_np(data_batch)))
+                labels.append(np.array(label_batch))
+                data_batch = []
+                label_batch = []
+                print(len(data), "batches processed")
 
         pool = Pool(processes=hp["num_proc"])
         # was going to batch the graphs, but padding them is incredibly memory
@@ -640,10 +460,10 @@ if __name__ == "__main__":
 
         # now, attempt to load the model cgnn.params if it exists, otherwise init with haiku
         # initialize the network
-        net = hk.transform(net_fn)
+        net = hk.transform_with_state(net_fn)
         rng = jax.random.prng_key(0x09_f911029_d74_e35_bd84156_c5635688_c0 % 2**32)
         init_rng, train_rng = jax.random.split(rng)
-        params = net.init(init_rng, x_train[0], is_training=True)
+        params, state = net.init(init_rng, x_train[0], is_training=True)
         if exists("CGNN.params"):
             with open("CGNN.params", "rb") as f:
                 params = pickle.load(f)
@@ -653,82 +473,75 @@ if __name__ == "__main__":
         # learning rate schedule: linear ramp-up and then constant
         num_epochs = 1000
         num_batches = len(x_train) // hp["batch_size"]
-        opt_init, opt_update = optax.adam(1e-4)
+        opt_init, opt_update = optax.adam(3e-4)
         opt_state = opt_init(params)
 
         compute_loss_fn = jax.jit(
-            functools.partial(graph_loss_fn, net, label_types, label_nums)
+            functools.partial(loss_fn, net, label_types, label_nums)
         )
         compute_accuracy_fn = jax.jit(
-            functools.partial(graph_accuracy_fn, net, label_types, label_nums)
+            functools.partial(accuracy_fn, net, label_types, label_nums)
         )
+        val_and_grad = jax.jit(jax.value_and_grad(compute_loss_fn, has_aux=True))
+
+        plt.ion()  # Turn on interactive mode
+        fig, ax = plt.subplots(figsize=(10, 8))
+        line, = ax.plot([1, 2], [1, 2])
+        # setting x-axis label and y-axis label
+        plt.xlabel("X-axis")
+        plt.ylabel("Y-axis")
 
         try:
             training_acc = ExponentialDecayWeighting(0.99)
+            training_res = []
+            iii = 0
+
             for epoch in range(num_epochs):
+                train_rng = jax.random.split(train_rng, num=1)[0]
+                shuffled_indices = jax.random.permutation(train_rng, len(x_train))
+
                 for i in range(num_batches):
                     batch_rng = jax.random.fold_in(train_rng, i)
-                    batch_start, batch_end = (
-                        i * hp["batch_size"],
-                        (i + 1) * hp["batch_size"],
-                    )
-                    x_batch = x_train[batch_start:batch_end]
-                    y_batch = y_train[batch_start:batch_end]
 
-                    (loss, accs), grad = jax.value_and_grad(
-                        compute_loss_fn, has_aux=True
-                    )(
-                        params,
-                        rng,
-                        pad_graph_to_nearest_power_of_two(jraph.batch(x_batch)),
-                        jnp.concatenate(
-                            (jnp.array(y_batch), jnp.zeros((1, output_dim)))
-                        ),
-                    )
+                    (loss, (accs, state)), grad = val_and_grad(params, state, rng, x_train[shuffled_indices[i]], y_train[shuffled_indices[i]])
                     updates, opt_state = opt_update(grad, opt_state, params)
                     params = optax.apply_updates(params, updates)
+
                     training_acc.add_accuracy(accs)
-                    print(accs)
-                    print("training accuracy: ", training_acc.get_weighted_average())
+                    
+                    training_res.append(training_acc.get_weighted_average())
 
-                # targets always has a shape - no funky stuff
-                num_samples = jnp.array(y_val).shape[0]
-                # ceiling division
-                val_num_batches = -(-num_samples // hp["batch_size"])
+                    iii += 1
+                    if iii % 10 == 0:#adjust per your feelings
+                        print("updated graph", iii, "times")
+                        line.set_xdata(np.arange(len(training_res)))
+                        line.set_ydata(np.array(training_res))
+                        ax.relim()
+                        ax.autoscale_view()
+                        fig.canvas.draw()
+                        fig.canvas.flush_events()
 
+                
                 batch_accuracies = []
-
-                for batch_idx in range(val_num_batches):
-                    start_idx = batch_idx * hp["batch_size"]
-                    end_idx = min((batch_idx + 1) * hp["batch_size"], num_samples)
-
-                    batch_accuracy = compute_accuracy_fn(
-                        params,
-                        rng,
-                        pad_graph_to_nearest_power_of_two(
-                            jraph.batch(x_val[start_idx:end_idx])
-                        ),
-                        jnp.concatenate(
-                            (
-                                jnp.array(y_val[start_idx:end_idx]),
-                                jnp.zeros((1, output_dim)),
-                            )
-                        ),
-                    )
+                for batch_idx in range(len(y_val)):
+                    batch_accuracy = compute_accuracy_fn(params, rng, x_val[batch_idx], y_val[batch_idx])
                     batch_accuracies.append(batch_accuracy)
-
-                # stack the batch accuracies and take the mean
+                
+                # Stack the batch accuracies and take the mean
                 batch_accuracies = jnp.stack(batch_accuracies)
                 mean_accuracy = jnp.mean(batch_accuracies, axis=0)
 
                 print(f"Epoch {epoch}, Validation accuracy: {mean_accuracy}")
                 # save the training and validation loss - just validation, not
                 # implemented yet
-        except keyboard_interrupt:
+        except KeyboardInterrupt:
             with open("CGNN.params", "wb") as f:
                 pickle.dump(params, f)
             print("Keyboard interrupt, saving model")
 
         with open("CGNN.params", "wb") as f:
             pickle.dump(params, f)
+        plt.ioff()  # Turn off interactive mode
+        plt.savefig('training_loss_CGNN.png')
+        plt.close()
         print("Done training")

@@ -21,4 +21,4 @@ def info(id):
         raise value_error(
             f"energy_per_atom_linear: No entry in database exists for material {id}"
         )
-    return v
+    return [-1.0 * float(v)]

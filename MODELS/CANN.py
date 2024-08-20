@@ -1,6 +1,4 @@
-from includes import *
-import os
-import shutil
+import sys, os, shutil
 
 if not __name__ == "__main__":
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
@@ -32,6 +30,7 @@ if __name__ == "__main__":
 # now the rest of the file.
 
 # this is a function in includes.py that loads all the submodules.
+from includes import *
 load_submodules()
 
 
@@ -40,25 +39,19 @@ hp = {
     "dropoutRate": 0.1,
     "max_atoms": 40,
     "batch_size": 512,
-    "num_proc": 12,  # this is the number of processes used in preprocessing
+    "num_proc": 8,  # this is the number of processes used in preprocessing
 }
 
 
-def mab(x, y):
+def mab(X, Y):
     head_count = 4
     key_count = 64
-    query = jax.nn.leaky_relu(hk.linear(key_count * head_count)(x))
-    key = jax.nn.leaky_relu(hk.linear(key_count * head_count)(y))
-    value = jax.nn.leaky_relu(hk.linear(key_count * head_count)(y))
-    attention_output = hk.multi_head_attention(
-        num_heads=head_count, key_size=key_count, w_init_scale=1.0
-    )(query, key, value)
-    h = hk.layer_norm(axis=-1, create_scale=True, create_offset=True)(
-        query + attention_output
-    )
-    ret = hk.layer_norm(axis=-1, create_scale=True, create_offset=True)(
-        h + hk.nets.mlp([256, 128, 128, h.shape[-1]], activation=jax.nn.leaky_relu)(h)
-    )
+    query = jax.nn.leaky_relu(hk.Linear(key_count * head_count)(X))
+    key = jax.nn.leaky_relu(hk.Linear(key_count * head_count)(Y))
+    value = jax.nn.leaky_relu(hk.Linear(key_count * head_count)(Y))
+    attention_output = hk.MultiHeadAttention(num_heads=head_count, key_size=key_count, w_init_scale=1.0)(query, key, value)
+    H = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(query + attention_output)
+    ret = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(H + hk.nets.MLP([256, 128, 128, H.shape[-1]], activation=jax.nn.leaky_relu)(H))
     return ret
 
 
@@ -67,11 +60,9 @@ def sab(x):
 
 
 def isab(x, param_name, num_inducing_points=16):
-    inducing_points = hk.get_parameter(
-        param_name, shape=(num_inducing_points, 256), init=jnp.zeros
-    )
-    h = mab(inducing_points, x)
-    return mab(x, h)
+  inducing_points = hk.get_parameter(param_name, shape=(num_inducing_points, 256), init=jnp.zeros)
+  H = mab(inducing_points, X)
+  return mab(X, H)
 
 
 def encoder(x):
@@ -79,28 +70,19 @@ def encoder(x):
     return x
 
 
-def decoder(z):
-    z = hk.sequential([hk.linear(256), jax.nn.leaky_relu])(
-        z
-    )  # check rep dim - prob not needed
-    num_seeds = 12  # apply sab after if you ever need more vectors out the end
-    seed_vectors = hk.get_parameter(
-        "seed_vec", shape=[num_seeds, z.shape[-1]], init=hk.initializers.random_normal()
-    )
-    z = mab(seed_vectors, z)
-    z = sab(z)
-    z = hk.sequential(
-        [
-            hk.linear(256),
-            jax.nn.leaky_relu,
-            hk.linear(128),
-            jax.nn.leaky_relu,
-            hk.linear(64),
-            jax.nn.leaky_relu,
-            hk.linear(output_dim),
-        ]
-    )(z)
-    return z[0]  # implicit global var to avoid passing static_args
+def decoder(Z):
+  Z = hk.Sequential([hk.Linear(256), jax.nn.leaky_relu])(Z)#check rep dim - prob not needed
+  num_seeds=12 #apply SAB after if you ever need more vectors out the end
+  seed_vectors = hk.get_parameter("seed_vec", shape=[num_seeds, Z.shape[-1]], init=hk.initializers.RandomNormal())
+  Z = mab(seed_vectors, Z)
+  Z = sab(Z)
+  Z = hk.Sequential([
+     hk.Linear(256), jax.nn.leaky_relu,
+     hk.Linear(128), jax.nn.leaky_relu,
+     hk.Linear(64), jax.nn.leaky_relu,
+     hk.Linear(output_dim)
+  ])(Z)
+  return Z[0]#implicit global var to avoid passing static_args
 
 
 def set_transformer_single(x):
@@ -121,7 +103,7 @@ def set_transformer(batch, is_training=False, dropout_rate=0):
     # the batch_global of the form (batch.shape[0], -1), tile it out and
     # attach it to each array
 
-    batch_g = jnp.tile(batch_global[:, none, :], (1, hp["max_atoms"], 1))
+    batch_g = jnp.tile(batch_global[:, None, :], (1, hp["max_atoms"], 1))
     reshaped_batch = jnp.concatenate((batch_atoms, batch_g), axis=2)
 
     # apply set_transformer_single to each example in the batch using jax.vmap
@@ -160,7 +142,7 @@ def process_id(valid_material_id):
     atom_names = atom_names_in_poscar(poscar)
 
     if len(atom_names) > hp["max_atoms"]:
-        return ("Large", none, none, none)
+        return ("Large", None, None, None)
 
     material_input_atomic = np.concatenate(
         (
@@ -172,7 +154,7 @@ def process_id(valid_material_id):
     )
 
     return (
-        none,
+        None,
         np.array(flatten(material_input_global)),
         material_input_atomic,
         np.array(flatten(material_output)),
@@ -270,10 +252,10 @@ if __name__ == "__main__":
 
         # now, attempt to load the model cann.params if it exists, otherwise init with haiku
         # initialize the network
-        net = hk.transform(net_fn)
+        net = hk.transform_with_state(net_fn)
         rng = jax.random.prng_key(0x09_f911029_d74_e35_bd84156_c5635688_c0 % 2**32)
         init_rng, train_rng = jax.random.split(rng)
-        params = net.init(
+        params, state = net.init(
             init_rng,
             (jnp.array([x_train[0]]), jnp.array([globals_train[0]])),
             is_training=True,
@@ -287,15 +269,8 @@ if __name__ == "__main__":
         # learning rate schedule: linear ramp-up and then constant
         num_epochs = 1000
         num_batches = x_train.shape[0] // hp["batch_size"]
-        ramp_up_epochs = 50  # number of epochs to linearly ramp up the learning rate
-        total_ramp_up_steps = ramp_up_epochs * num_batches
-        lr_schedule = optax.linear_schedule(
-            init_value=1e-3, end_value=1e-3, transition_steps=total_ramp_up_steps
-        )
-
-        # optimizer
-        optimizer = optax.noisy_sgd(learning_rate=lr_schedule)
-        opt_state = optimizer.init(params)
+        opt_init, opt_update = optax.adam(2e-4)
+        opt_state = opt_init(params)
 
         compute_loss_fn = jax.jit(
             functools.partial(loss_fn, net, label_types, label_nums)
@@ -303,9 +278,20 @@ if __name__ == "__main__":
         compute_accuracy_fn = jax.jit(
             functools.partial(accuracy_fn, net, label_types, label_nums)
         )
+        val_and_grad = jax.jit(jax.value_and_grad(compute_loss_fn, has_aux=True))
+
+
+        plt.ion()  # Turn on interactive mode
+        fig, ax = plt.subplots(figsize=(10, 8))
+        line, = ax.plot([1, 2], [1, 2])
+        # setting x-axis label and y-axis label
+        plt.xlabel("X-axis")
+        plt.ylabel("Y-axis")
 
         try:
-            training_acc = ExponentialDecayWeighting(0.9)
+            training_acc = ExponentialDecayWeighting(0.99)
+            training_res = []
+            iii = 0
             for epoch in range(num_epochs):
                 for i in range(num_batches):
                     batch_rng = jax.random.fold_in(train_rng, i)
@@ -318,15 +304,25 @@ if __name__ == "__main__":
                     y_batch = y_train[batch_start:batch_end]
                     # print all the types for debug purposes:
 
-                    (loss, accs), grad = jax.value_and_grad(
+                    (loss, (accs, state)), grad = val_and_grad(
                         compute_loss_fn, has_aux=True
                     )(params, rng, (x_batch, x_batch_global), y_batch)
-                    updates, opt_state = optimizer.update(grad, opt_state)
+                    updates, opt_state = opt_update(grad, opt_state)
                     params = optax.apply_updates(params, updates)
 
                     training_acc.add_accuracy(accs)
-                    if i % 10 == 0:
-                        print(training_acc.get_weighted_average())
+
+                    training_res.append(training_acc.get_weighted_average())
+
+                    iii += 1
+                    if iii % 10 == 0:#adjust per your feelings
+                        print("updated graph", iii, "times")
+                        line.set_xdata(np.arange(len(training_res)))
+                        line.set_ydata(np.array(training_res))
+                        ax.relim()
+                        ax.autoscale_view()
+                        fig.canvas.draw()
+                        fig.canvas.flush_events()
 
                 # targets always has a shape - no funky stuff
                 num_samples = jnp.array(y_val).shape[0]
@@ -352,11 +348,14 @@ if __name__ == "__main__":
                 mean_accuracy = jnp.mean(batch_accuracies, axis=0)
 
                 print(f"Epoch {epoch}, Validation accuracy: {mean_accuracy}")
-        except keyboard_interrupt:
+        except KeyboardInterrupt:
             with open("CANN.params", "wb") as f:
                 pickle.dump(params, f)
             print("Keyboard interrupt, saving model")
 
         with open("CANN.params", "wb") as f:
             pickle.dump(params, f)
+        plt.ioff()  # Turn off interactive mode
+        plt.savefig('training_loss_CANN.png')
+        plt.close()
         print("Done training")
