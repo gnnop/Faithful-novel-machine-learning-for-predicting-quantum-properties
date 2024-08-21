@@ -1,12 +1,11 @@
 # TODO LIST
 
-- the components in COMPONENTS should have their own loss functions, rather than using 'classification' and 'regression' but standard loss types should be available in includes so they can just pass a pre-existing classification and regression function out
+
 - models should write results out for training automatically, and write their parameters out each epoch to avoid failed training
 - if a model is run and there's a prediction.csv, the model should write out the material predictions to the csv using the existing param files and then turn off. This allows easy retrieval of practical results
 - all models should use the method of validating with batch size currently incorporated in CANN and CGNN
 - there should be a correspondence set up between the paper and the experiments, so you can run a file to get the list of labelled experiments that reproduce results in the paper
 - 0.89 validation accuracy must be surpassed on TQC advanced for the paper to be credible. I acheived this once with CGNN, I am trying to do it again.
-- The 0.93 accuracy you got Micah has to be checked to see why it's not replicating here
 - all hyperparameters must be moved to the top and labeled in the code
 - once 0.85 accuracy is reached with a model, it can be tested for generalization on the rest of the tasks in the paper
 - once 0.85 accuracy is reached with a model, and training accuracy is at 0.99, all 4 models should be combined to determine what materials the models are collectively struggling with. These will be the 'of interest' materials highlighted in the paper
