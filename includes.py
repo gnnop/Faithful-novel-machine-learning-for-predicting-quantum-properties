@@ -92,10 +92,10 @@ def load_submodules():
 #functions and utilities which may be shared but are included here to avoid repetition
 
 #cgnn and ccnn - maybe csnn should incorporate?
-completeTernary = list(itertools.product([-1, 0, 1], repeat=3))
+complete_ternary = list(itertools.product([-1, 0, 1], repeat=3))
 
 #for poscar processing
-def unpackLine(str):
+def unpack_line(str):
     x = str.split()[0:3]
     return list(map(float, x))
 

@@ -42,13 +42,13 @@ hp = {
     "maxDims": 48,
     # it is assumed that all atoms have the same size. this is the relative
     # radius of each atom in lattice units.
-    "conversionFactor": 1.45,
+    "conversionFactor": 3.1,
     "num_proc": 8,
 }
 
 hp["centre"] = np.array([hp["maxDims"] / 2, hp["maxDims"] / 2, hp["maxDims"] / 2])
 # the last entry is dynamically created before network operation
-hp["dims"] = ([hp["maxDims"], hp["maxDims"], hp["maxDims"]], 1)
+hp["dims"] = (hp["maxDims"], hp["maxDims"], hp["maxDims"], 1)
 
 
 # using the includes file loss functions, this is necessary for it.
@@ -109,7 +109,7 @@ def atom_to_array(position, axes):
 
 def array_to_atom(position, axes, axes_inv):
     basePoint = hp["centre"] - r2a(np.array([1/2,1/2,1/2]), axes)
-    return np.matmul((position - basePoint) / hp["conversionFactor"], axesInv)
+    return np.matmul((position - basePoint) / hp["conversionFactor"], axes_inv)
 
 
 def given_point_determine_cube_and_overlap(position):
@@ -225,9 +225,9 @@ def preprocess_data(index):
         ):
             return ("too far", None, None, None)
 
-        for j in completeTernary:
+        for j in complete_ternary:
             # This tiles out everything, then I dither the pixels
-            points, vol = givenPointDetermineCubeAndOverlap(
+            points, _ = given_point_determine_cube_and_overlap(
                 pos_ + r2a(np.array(j), axes)
             )
             for jj in range(len(points)):
@@ -262,7 +262,7 @@ if __name__ == "__main__":
         # obvious.
 
         # Print the number of poscars total:
-        setOfAllPoscars = getSetOfPoscars()
+        setOfAllPoscars = get_set_of_poscars()
         print("There are", len(setOfAllPoscars), "poscars total.")
 
         ids = set.intersection(
