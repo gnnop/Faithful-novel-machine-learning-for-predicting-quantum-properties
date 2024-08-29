@@ -292,6 +292,11 @@ def loss_fn(net, evaluation_methods, learning_num, params, rng, inputs, targets)
         error += l
         accuracy = jnp.append(accuracy, a)
         location += learning_num[i]
+
+    def l2_loss(x, alpha):
+        return alpha * (x ** 2).mean()
+
+    error += jnp.sum(l2_loss(weight_array, alpha=0.001) for weight_array in jax.tree_leaves(params))
     
     return error, accuracy
 
