@@ -39,11 +39,12 @@ hp = {
     "batch_size": 32,
     # the input vector is a 3d lattice of size max_dims x max_dims x max_dims of
     # atoms, represented as vectors of size max_rep.
-    "maxDims": 48,
+    "maxDims": 42,
     # it is assumed that all atoms have the same size. this is the relative
     # radius of each atom in lattice units.
-    "conversionFactor": 3.1,
-    "num_proc": 8,
+    "conversionFactor": 40.0,
+    "num_proc_pre": 8,
+    "num_proc_ml": 1
 }
 
 hp["centre"] = np.array([hp["maxDims"] / 2, hp["maxDims"] / 2, hp["maxDims"] / 2])
@@ -60,14 +61,28 @@ def net_fn(batch_input, is_training=True, dropout_rate=0.1):
         if use_bn:
             x = hk.BatchNorm(True, True, 0.99)(x, is_training=is_training)
         return jax.nn.leaky_relu(x)
+    
+
+    late_global = batch_global
+    batch_global = hk.Sequential([hk.Linear(300), jax.nn.leaky_relu, hk.Linear(21 * 21 * 21), jax.nn.leaky_relu])(batch_global)
+
+    batch_global = jnp.reshape(batch_global, (-1, 21, 21, 21, 1))
+    batch_global = hk.Conv3DTranspose(output_channels=2, kernel_shape=2, stride=2, padding="VALID")(batch_global)
+    batch_conv = jnp.concatenate([batch_conv, batch_global], axis=-1)
+
+
 
     # Process convolutional data
-    batch_conv = conv_block(batch_conv, kernel_size=20, channels=6, stride=3, use_bn=False)
-    batch_conv = conv_block(batch_conv, kernel_size=20, channels=6, stride=3, use_bn=False)
-    batch_conv = conv_block(batch_conv, channels=40, stride=3, use_bn=False)
-    batch_conv = conv_block(batch_conv, channels=102, stride=3, use_bn=False)
-    batch_conv = conv_block(batch_conv, channels=306, stride=3, use_bn=False)
-    batch_conv = conv_block(batch_conv, channels=1024, stride=3, use_bn=False)
+    batch_conv = conv_block(batch_conv, kernel_size=5, channels=90, stride=3, use_bn=False)
+    batch_conv = conv_block(batch_conv, kernel_size=1, channels=90, stride=1, use_bn=False)
+    batch_conv = conv_block(batch_conv, kernel_size=1, channels=90, stride=1, use_bn=False)
+    batch_conv = conv_block(batch_conv, kernel_size=2, channels=90, stride=2, use_bn=False)
+    batch_conv = conv_block(batch_conv, kernel_size=5, channels=270, stride=3, use_bn=False)
+    batch_conv = conv_block(batch_conv, kernel_size=1, channels=270, stride=1, use_bn=False)
+    batch_conv = conv_block(batch_conv, kernel_size=1, channels=270, stride=1, use_bn=False)
+    batch_conv = conv_block(batch_conv, channels=540, stride=3, use_bn=False)
+
+
     batch_conv = jnp.squeeze(batch_conv, axis=(1, 2, 3))
 
     # Global average pooling
@@ -82,15 +97,14 @@ def net_fn(batch_input, is_training=True, dropout_rate=0.1):
         return x#hk.dropout(hk.next_rng_key(), dropout_rate, is_training)(x)
 
     # Combine convolutional features with global data
-    batch_global = mlp_block(batch_global, 512)
-    combined_features = jnp.concatenate([batch_conv, batch_global], axis=-1)
+    late_global = mlp_block(late_global, 512)
+    combined_features = jnp.concatenate([batch_conv, late_global], axis=-1)
 
 
 
     x = mlp_block(combined_features, 1024)
     x = mlp_block(x, 512)
     x = mlp_block(x, 256)
-    x = mlp_block(x, 128)
 
     return hk.Linear(output_dim)(x)
 
@@ -98,7 +112,7 @@ def net_fn(batch_input, is_training=True, dropout_rate=0.1):
 # converts physical position to voxel position.
 
 def r2a(pos, arr):
-    return hp["conversionFactor"] * np.matmul(pos, arr)
+    return hp["conversionFactor"] * np.array(pos)#np.matmul(pos, arr)
 
 
 def atom_to_array(position, axes):
@@ -169,13 +183,15 @@ def unpack_data(index, data_item, ccnn_depth, random_rotate=False):
                         *(data_item[1][i]),
                     ]
 
+    """
     inv_axes = np.linalg.inv(axes)
     mask = np.fromfunction(
         lambda i, j, k, l: test_convexity(np.array((i, j, k)), axes, inv_axes),
         hp["dims"],
     )
+    """
 
-    space = np.concatenate((dense_encode, mask), axis=-1)
+    space = dense_encode#np.concatenate((dense_encode, mask), axis=-1)
 
     # this is the data that is passed to the network, needs concatenation with
     # global data still.
@@ -248,7 +264,7 @@ def preprocess_data(index):
     for func in range(len(global_outputs)):
         go_.append(global_outputs[func].info(index))
 
-    return ("good", flatten(pi_), pa_, flatten(go_))
+    return ("good", flatten(pi_), pa_, flatten(go_), index)
 
 
 if __name__ == "__main__":
@@ -285,6 +301,7 @@ if __name__ == "__main__":
         pi = []
         pa = []
         go = []
+        indices = []
         go_types = [i.classifier() for i in global_outputs]
         go_nums = [len(i.info(str(1))) for i in global_outputs]
 
@@ -297,6 +314,7 @@ if __name__ == "__main__":
             global pi
             global pa
             global go
+            global indices
 
             if len(pi) % 1000 == 0:
                 print(len(pi), "poscars processed")
@@ -305,13 +323,14 @@ if __name__ == "__main__":
                 pi.append(args[1])
                 pa.append(args[2])
                 go.append(args[3])
+                indices.append(args[4])
             elif args[0] == "too far":
                 atomsOutOfEmbedding += 1
             elif args[0] == "too close":
                 atomsTooClose += 1
 
         # Create a pool of worker processes
-        pool = Pool(processes=hp["num_proc"])
+        pool = Pool(processes=hp["num_proc_pre"])
 
         for index in list(ids):
             pool.apply_async(preprocess_data, args=(index,), callback=accumulate_data)
@@ -337,6 +356,7 @@ if __name__ == "__main__":
                     "labels": np.array(go),
                     "labels_types": go_types,
                     "labels_nums": go_nums,
+                    "indices": indices,
                 },
                 f,
             )
@@ -348,12 +368,11 @@ if __name__ == "__main__":
         labels = data["labels"]
         label_types = data["labels_types"]
         label_nums = data["labels_nums"]
+        indices = data["indices"]
 
         output_dim = sum(label_nums)
 
         # Split the data into training and validation sets
-        # X_train, y_train, add_train, X_val, y_val, add_val = partition_dataset(0.4, data, labels, additional_data)
-        # The following data is still lightweight
         X_train, globals_train, y_train, X_val, globals_val, y_val = partition_dataset(
             0.1, inputs, inputs_global, labels
         )
@@ -380,7 +399,7 @@ if __name__ == "__main__":
 
         # Create the optimizer
         # Learning rate schedule: linear ramp-up and then constant
-        num_epochs = 3
+        num_epochs = 5
         num_batches = len(X_train) // hp["batch_size"]
         opt_init, opt_update = optax.adam(3e-4)
         opt_state = opt_init(params)
@@ -409,7 +428,7 @@ if __name__ == "__main__":
             iii = 0
 
             # Create a pool of worker processes
-            pool = Pool(processes=hp["num_proc"])
+            pool = Pool(processes=hp["num_proc_ml"])
 
             for _ in range(num_epochs):
                 for index, data_item in enumerate(inputs):
@@ -455,8 +474,12 @@ if __name__ == "__main__":
                         ax.autoscale_view()
                         fig.canvas.draw()
                         fig.canvas.flush_events()
-
+                    
                     batch.clear()
+                    
+                if iii % num_batches == 0 and iii > 0:
+                    print("need to figure out how to record testing accuracy ehre")
+
 
             pool.close()
             pool.join()
