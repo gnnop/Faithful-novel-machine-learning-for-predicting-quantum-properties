@@ -19,4 +19,6 @@ def info(poscar):
         if cur_indx > numbs[atom_type]:
             atom_type += 1
 
-        nodes_array.append(unpack_line(poscar[8 + i][0:3]))
+        nodes_array.append(unpack_line(poscar[8 + i]))
+    
+    return nodes_array

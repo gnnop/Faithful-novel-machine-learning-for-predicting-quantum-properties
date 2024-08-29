@@ -16,4 +16,4 @@ def valid_ids():
 
 
 def info(id):
-    return csv_loader.info(id)
+    return [float(csv_loader.info(id))]

@@ -17,8 +17,8 @@ def valid_ids():
 
 def info(id):
     v = csv_loader.info(id)
-    if v is none:
-        raise value_error(
+    if v is None:
+        raise ValueError(
             f"energy_per_atom_linear: No entry in database exists for material {id}"
         )
-    return v
+    return [-1.0 * float(v)]

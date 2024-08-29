@@ -3,6 +3,7 @@ import sys, os
 import csv
 from os.path import exists
 import pickle
+import time
 
 # paths to the directories
 input_dir = './input'
@@ -27,6 +28,7 @@ from scipy.spatial.transform import Rotation as R
 import itertools
 from dataclasses import dataclass
 from multiprocessing import Pool, Manager
+from typing import Any, Callable, Dict, List, Optional, Tuple
 import functools
 from random import shuffle
 import re
@@ -34,8 +36,8 @@ from collections import Counter
 import mendeleev
 
 
-import time
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 
 '''
@@ -90,10 +92,10 @@ def load_submodules():
 #functions and utilities which may be shared but are included here to avoid repetition
 
 #cgnn and ccnn - maybe csnn should incorporate?
-completeTernary = list(itertools.product([-1, 0, 1], repeat=3))
+complete_ternary = list(itertools.product([-1, 0, 1], repeat=3))
 
 #for poscar processing
-def unpackLine(str):
+def unpack_line(str):
     x = str.split()[0:3]
     return list(map(float, x))
 
@@ -278,11 +280,11 @@ class EvaluationMethods:
 
 
 
-def loss_fn(net, evaluation_methods, learning_num, params, rng, inputs, targets):
+def loss_fn(net, evaluation_methods, learning_num, params, state, rng, inputs, targets):
     error = 0.0
     accuracy = jnp.array([])
     location = 0
-    predictions = net.apply(params, rng, inputs,is_training=True)
+    predictions, new_state = net.apply(params, state, rng, inputs,is_training=True)
 
     for i in range(len(evaluation_methods)):
         evaluation_method = evaluation_methods[i]
@@ -298,9 +300,9 @@ def loss_fn(net, evaluation_methods, learning_num, params, rng, inputs, targets)
 
     error += jnp.sum(l2_loss(weight_array, alpha=0.001) for weight_array in jax.tree_leaves(params))
     
-    return error, accuracy
+    return error, (accuracy, new_state)
 
-def accuracy_fn(net, evaluation_methods, learning_num, params, rng, inputs, targets):
-    _, a = loss_fn(net, evaluation_methods, learning_num, params, rng, inputs, targets)
+def accuracy_fn(net, evaluation_methods, learning_num, params, state, rng, inputs, targets):
+    _, (a, _) = loss_fn(net, evaluation_methods, learning_num, params, state, rng, inputs, targets)
     return a
 
