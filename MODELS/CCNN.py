@@ -43,8 +43,8 @@ hp = {
     # it is assumed that all atoms have the same size. this is the relative
     # radius of each atom in lattice units.
     "conversionFactor": 40.0,
-    "num_proc_pre": 8,
-    "num_proc_ml": 1
+    "num_proc": 8,
+    "max_unpack_els": 200
 }
 
 hp["centre"] = np.array([hp["maxDims"] / 2, hp["maxDims"] / 2, hp["maxDims"] / 2])
@@ -330,7 +330,7 @@ if __name__ == "__main__":
                 atomsTooClose += 1
 
         # Create a pool of worker processes
-        pool = Pool(processes=hp["num_proc_pre"])
+        pool = Pool(processes=hp["num_proc"])
 
         for index in list(ids):
             pool.apply_async(preprocess_data, args=(index,), callback=accumulate_data)
@@ -422,72 +422,103 @@ if __name__ == "__main__":
         try:
             # Now, for the unpacking, we need multithreading
             manager = Manager()
-            results_queue = manager.Queue()
+            results_queue = manager.Queue(maxsize=hp["max_unpack_els"])
             training_acc = ExponentialDecayWeighting(0.99)
             training_res = []
             iii = 0
 
             # Create a pool of worker processes
-            pool = Pool(processes=hp["num_proc_ml"])
+            pool = Pool(processes=hp["num_proc"])
 
-            for _ in range(num_epochs):
-                for index, data_item in enumerate(inputs):
+            for epoch in range(num_epochs):
+
+
+                for index, data_item in enumerate(X_train):
                     pool.apply_async(
                         unpack_data,
                         args=(index, data_item, ccnn_depth),
                         callback=results_queue.put,
                     )
 
-            pool.apply_async(lambda a: None, args=(None,), callback=results_queue.put)
+                pool.apply_async(lambda a: None, args=(None,), callback=results_queue.put)
 
-            batch = []
+                batch = []
 
-            while True:
-                result = results_queue.get()
+                while True:
+                    result = results_queue.get()
 
-                if result is None:
-                    # There will be less than a batch of data left, so just
-                    # flush it.
-                    break
+                    if result is None:
+                        # There will be less than a batch of data left, so just
+                        # flush it.
+                        break
 
-                batch.append(result)
+                    batch.append(result)
 
-                if len(batch) == hp["batch_size"]:
-                    conv_data = np.array([i[1] for i in batch])
-                    g_data = np.array([inputs_global[i[0]] for i in batch])
-                    label_data = np.array([labels[i[0]] for i in batch])
+                    if len(batch) == hp["batch_size"]:
+                        conv_data = np.array([i[1] for i in batch])
+                        g_data = np.array([globals_train[i[0]] for i in batch])
+                        label_data = np.array([y_train[i[0]] for i in batch])
 
-                    (loss, (accs, state)), grad = val_and_grad(params, state, rng, (conv_data, g_data), label_data)
-                    updates, opt_state = opt_update(grad, opt_state)
-                    params = optax.apply_updates(params, updates)
+                        (loss, (accs, state)), grad = val_and_grad(params, state, rng, (conv_data, g_data), label_data)
+                        updates, opt_state = opt_update(grad, opt_state)
+                        params = optax.apply_updates(params, updates)
 
-                    training_acc.add_accuracy(accs)
+                        training_acc.add_accuracy(accs)
 
-                    training_res.append(training_acc.get_weighted_average())
+                        training_res.append(training_acc.get_weighted_average())
 
-                    iii += 1
-                    if iii % 10 == 0:#adjust per your feelings
-                        print("updated graph", iii, "times")
-                        line.set_xdata(np.arange(len(training_res)))
-                        line.set_ydata(np.array(training_res))
-                        ax.relim()
-                        ax.autoscale_view()
-                        fig.canvas.draw()
-                        fig.canvas.flush_events()
-                    
-                    batch.clear()
-                    
-                if iii % num_batches == 0 and iii > 0:
-                    print("need to figure out how to record testing accuracy ehre")
+                        iii += 1
+                        if iii % 10 == 0:#adjust per your feelings
+                            line.set_xdata(np.arange(len(training_res)))
+                            line.set_ydata(np.array(training_res))
+                            ax.relim()
+                            ax.autoscale_view()
+                            fig.canvas.draw()
+                            fig.canvas.flush_events()
+                        
+                        batch.clear()
+                
+                #Now evaluate on the other set
+
+                for index, data_item in enumerate(X_val):
+                    pool.apply_async(
+                        unpack_data,
+                        args=(index, data_item, ccnn_depth),
+                        callback=results_queue.put,
+                    )
+
+                pool.apply_async(lambda a: None, args=(None,), callback=results_queue.put)
+
+                batch_accuracies = []
+
+                batch = []
+
+                while True:
+                    result = results_queue.get()
+
+                    if result is None:
+                        # There will be less than a batch of data left, so just
+                        # flush it.
+                        break
+
+                    batch.append(result)
+
+                    if len(batch) == hp["batch_size"]:
+                        conv_data = np.array([i[1] for i in batch])
+                        g_data = np.array([globals_val[i[0]] for i in batch])
+                        label_data = np.array([y_val[i[0]] for i in batch])
+
+                        batch_accuracy = compute_accuracy_fn(params, state, rng, (conv_data, g_data), label_data)
+                        batch_accuracies.append(batch_accuracy)
+                        batch.clear()
+                
+                batch_accuracies = jnp.stack(batch_accuracies)
+                mean_accuracy = jnp.mean(batch_accuracies)
+                print(f"Epoch {epoch}, Validation accuracy: {mean_accuracy}")
 
 
             pool.close()
             pool.join()
-
-            # Save the training and validation loss
-            # train_accuracy = compute_accuracy_fn(params, batch_rng, X_train, y_train)
-            # val_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
-            # print(f"Epoch {epoch}, Training accuracy: {train_accuracy}, Validation accuracy: {val_accuracy}")
         except KeyboardInterrupt:
             with open("CCNN.params", "wb") as f:
                 pickle.dump(params, f)
