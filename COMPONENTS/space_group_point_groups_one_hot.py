@@ -84,4 +84,6 @@ def valid_ids():
 
 def info(id):
     temp = csv_loader.info(id)
-    return jax.nn.one_hot(serialize_space_group(int(temp)), 32).tolist()
+    arr = [0] * 32
+    arr[serialize_space_group(int(temp))] = 1
+    return arr
