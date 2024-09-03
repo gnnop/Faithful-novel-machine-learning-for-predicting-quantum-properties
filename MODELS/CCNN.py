@@ -43,7 +43,7 @@ hp = {
     # it is assumed that all atoms have the same size. this is the relative
     # radius of each atom in lattice units.
     "conversionFactor": 40.0,
-    "num_proc": 8,
+    "num_proc": 2,
     "max_unpack_els": 200
 }
 
@@ -145,7 +145,8 @@ def get_global_data_vector(poscar):
         [unpack_line(poscar[2]), unpack_line(poscar[3]), unpack_line(poscar[4])]
     )
 
-
+def diag():
+    return 1
 # uses mutability  @jax.jit
 
 
@@ -431,8 +432,6 @@ if __name__ == "__main__":
             pool = Pool(processes=hp["num_proc"])
 
             for epoch in range(num_epochs):
-
-
                 for index, data_item in enumerate(X_train):
                     pool.apply_async(
                         unpack_data,
@@ -440,14 +439,17 @@ if __name__ == "__main__":
                         callback=results_queue.put,
                     )
 
-                pool.apply_async(lambda a: None, args=(None,), callback=results_queue.put)
 
                 batch = []
+                print("entering loop")
 
+                num_els_processed = 0
                 while True:
                     result = results_queue.get()
+                    num_els_processed += 1
 
-                    if result is None:
+                    if num_els_processed == len(X_train):
+                        print("to testing loop!")
                         # There will be less than a batch of data left, so just
                         # flush it.
                         break
@@ -478,6 +480,8 @@ if __name__ == "__main__":
                         
                         batch.clear()
                 
+                batch.clear()
+                
                 #Now evaluate on the other set
 
                 for index, data_item in enumerate(X_val):
@@ -487,16 +491,17 @@ if __name__ == "__main__":
                         callback=results_queue.put,
                     )
 
-                pool.apply_async(lambda a: None, args=(None,), callback=results_queue.put)
-
                 batch_accuracies = []
 
                 batch = []
 
+                num_els_processed = 0
                 while True:
                     result = results_queue.get()
+                    num_els_processed += 1
 
-                    if result is None:
+                    if num_els_processed == len(X_val):
+                        print("To training loop")
                         # There will be less than a batch of data left, so just
                         # flush it.
                         break
