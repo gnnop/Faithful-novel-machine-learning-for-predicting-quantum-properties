@@ -3,7 +3,7 @@ from includes import *
 csv_loader = CSVLoader('tqc.csv')
 
 def classifier():
-    return loss_classification
+    return EvaluationMethods.classification
 
 # Functions to be used in another module
 def valid_ids():
