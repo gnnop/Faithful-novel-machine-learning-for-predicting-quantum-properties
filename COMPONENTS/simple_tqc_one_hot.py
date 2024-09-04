@@ -7,7 +7,7 @@ def valid_ids():
     return csv_loader.valid_ids()
 
 def classifier():
-    return loss_classification
+    return EvaluationMethods.classification
 
 def info(id):
     temp = csv_loader.info(id)
