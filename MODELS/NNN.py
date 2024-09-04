@@ -1,3 +1,4 @@
+from optax._src.alias import jnp
 from includes import *
 import os
 import shutil
@@ -324,8 +325,19 @@ There are {len(global_inputs)}  global inputs,
         compute_accuracy_fn = jax.jit(
             functools.partial(accuracy_fn, net, label_types, label_nums)
         )
+        val_and_grad = jax.jit(jax.value_and_grad(compute_loss_fn, has_aux=True))
+
+        plt.ion()  # Turn on interactive mode
+        fig, ax = plt.subplots(figsize=(10, 8))
+        line, = ax.plot([1, 2], [1, 2])
+        # setting x-axis label and y-axis label
+        plt.xlabel("X-axis")
+        plt.ylabel("Y-axis")
 
         try:
+            iii = 0
+            training_acc = ExponentialDecayWeighting(0.99)
+            training_res = []
             for epoch in tqdm(range(num_epochs)):
                 for valid_material_id in range(num_batches):
                     batch_rng = jax.random.fold_in(train_rng, valid_material_id)
@@ -343,14 +355,36 @@ There are {len(global_inputs)}  global inputs,
                     updates, opt_state = optimizer.update(grad, opt_state)
                     params = optax.apply_updates(params, updates)
 
-                # save the training and validation loss
-                train_accuracy = compute_accuracy_fn(
-                    params, batch_rng, X_train, y_train
-                )
-                val_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
-                print(
-                    f"Epoch {epoch}, Training accuracy: {train_accuracy}, Validation accuracy: {val_accuracy}"
-                )
+                    training_acc.add_accuracy(accs)
+                    training_res.append(training_acc.get_weighted_average())
+                    iii += 1
+
+                    if iii % 10 == 0:#adjust per your feelings
+                        line.set_xdata(np.arange(len(training_res)))
+                        line.set_ydata(np.array(training_res))
+                        ax.relim()
+                        ax.autoscale_view()
+                        fig.canvas.draw()
+                        fig.canvas.flush_events()
+
+                # save the testing loss
+                num_batches = X_val.shape[0] // hp["batch_size"]
+                batch_accuracies = []
+                for batch in range(num_batches):
+                    batch_rng = jax.random.fold_in(train_rng, batch)
+                    batch_start, batch_end = (
+                        batch * hp["batch_size"],
+                        (batch + 1) * hp["batch_size"],
+                    )
+                    x_batch = X_val[batch_start:batch_end]
+                    y_batch = y_val[batch_start:batch_end]
+                    # print all the types for debug purposes:
+                    batch_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
+                    batch_accuracies.append(batch_accuracy)
+                
+                batch_accuracies = jnp.stack(batch_accuracies)
+                mean_accuracy = jnp.mean(batch_accuracies)
+                print(f"Epoch {epoch}, Validation accuracy: {mean_accuracy}")
         except KeyboardInterrupt:
             with open("NNN.params", "wb") as f:
                 pickle.dump(params, f)
@@ -358,4 +392,8 @@ There are {len(global_inputs)}  global inputs,
 
         with open("NNN.params", "wb") as f:
             pickle.dump(params, f)
+        
+        plt.ioff()  # Turn off interactive mode
+        plt.savefig('training_loss_NNN.png')
+        plt.close()
         print("Done training")
