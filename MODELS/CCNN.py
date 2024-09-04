@@ -43,8 +43,8 @@ hp = {
     # it is assumed that all atoms have the same size. this is the relative
     # radius of each atom in lattice units.
     "conversionFactor": 40.0,
-    "num_proc": 2,
-    "max_unpack_els": 200
+    "num_proc": 8,
+    "max_unpack_els": 300
 }
 
 hp["centre"] = np.array([hp["maxDims"] / 2, hp["maxDims"] / 2, hp["maxDims"] / 2])
@@ -400,7 +400,7 @@ if __name__ == "__main__":
 
         # Create the optimizer
         # Learning rate schedule: linear ramp-up and then constant
-        num_epochs = 5
+        num_epochs = 20
         num_batches = len(X_train) // hp["batch_size"]
         opt_init, opt_update = optax.adam(3e-4)
         opt_state = opt_init(params)
@@ -466,10 +466,9 @@ if __name__ == "__main__":
                         params = optax.apply_updates(params, updates)
 
                         training_acc.add_accuracy(accs)
-
                         training_res.append(training_acc.get_weighted_average())
-
                         iii += 1
+
                         if iii % 10 == 0:#adjust per your feelings
                             line.set_xdata(np.arange(len(training_res)))
                             line.set_ydata(np.array(training_res))
@@ -516,6 +515,8 @@ if __name__ == "__main__":
                         batch_accuracy = compute_accuracy_fn(params, state, rng, (conv_data, g_data), label_data)
                         batch_accuracies.append(batch_accuracy)
                         batch.clear()
+                
+                batch.clear()
                 
                 batch_accuracies = jnp.stack(batch_accuracies)
                 mean_accuracy = jnp.mean(batch_accuracies)
