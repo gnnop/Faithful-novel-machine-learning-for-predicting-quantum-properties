@@ -472,7 +472,7 @@ if __name__ == "__main__":
         # create the optimizer
         # learning rate schedule: linear ramp-up and then constant
         num_epochs = 1000
-        num_batches = len(x_train) // hp["batch_size"]
+        num_batches = len(x_train)
         opt_init, opt_update = optax.adam(3e-4)
         opt_state = opt_init(params)
 
