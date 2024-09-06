@@ -244,7 +244,7 @@ def net_fn(graph, is_training=False, dropout_rate=0):
     x3 = collector(x2)
 
     # return graph minus the fake one
-    return x3[0:-1, ...]
+    return x3.globals[0:-1]
 
 
 output_dim = 0  # initialize before calling the network
@@ -278,8 +278,8 @@ def _nearest_bigger_power_of_two(x: int) -> int:
 #graph creation things ALWAYS only appends one graph
 #This is important for the masking operation.
 def pad_graph_to_nearest_power_of_two(
-    graphs_tuple: jraph.graphs_tuple,
-) -> jraph.graphs_tuple:
+    graphs_tuple: jraph.GraphsTuple,
+) -> jraph.GraphsTuple:
     """Pads a batched `GraphsTuple` to the nearest power of two"""
     # add 1 since we need at least one padding node for pad_with_graphs.
     pad_nodes_to = _nearest_bigger_power_of_two(jnp.sum(graphs_tuple.n_node)) + 1
@@ -318,7 +318,7 @@ def extract_graph(atomic_encoding, absolute_position, glob, label_size, axes):
 
     # everything should be lined up now, but we need to add it to a graph
 
-    return jraph.graphs_tuple(
+    return jraph.GraphsTuple(
         nodes=jnp.array(nodes_array),
         senders=jnp.array(sender_array),
         receivers=jnp.array(receiver_array),
@@ -461,7 +461,7 @@ if __name__ == "__main__":
         # now, attempt to load the model cgnn.params if it exists, otherwise init with haiku
         # initialize the network
         net = hk.transform_with_state(net_fn)
-        rng = jax.random.prng_key(0x09_f911029_d74_e35_bd84156_c5635688_c0 % 2**32)
+        rng = jax.random.PRNGKey(0x09_f911029_d74_e35_bd84156_c5635688_c0 % 2**32)
         init_rng, train_rng = jax.random.split(rng)
         params, state = net.init(init_rng, x_train[0], is_training=True)
         if exists("CGNN.params"):
@@ -513,7 +513,6 @@ if __name__ == "__main__":
 
                     iii += 1
                     if iii % 10 == 0:#adjust per your feelings
-                        print("updated graph", iii, "times")
                         line.set_xdata(np.arange(len(training_res)))
                         line.set_ydata(np.array(training_res))
                         ax.relim()
@@ -524,7 +523,7 @@ if __name__ == "__main__":
                 
                 batch_accuracies = []
                 for batch_idx in range(len(y_val)):
-                    batch_accuracy = compute_accuracy_fn(params, rng, x_val[batch_idx], y_val[batch_idx])
+                    batch_accuracy = compute_accuracy_fn(params,state, rng, x_val[batch_idx], y_val[batch_idx])
                     batch_accuracies.append(batch_accuracy)
                 
                 # Stack the batch accuracies and take the mean
