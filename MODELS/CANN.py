@@ -253,7 +253,7 @@ if __name__ == "__main__":
         # now, attempt to load the model cann.params if it exists, otherwise init with haiku
         # initialize the network
         net = hk.transform_with_state(net_fn)
-        rng = jax.random.prng_key(0x09_f911029_d74_e35_bd84156_c5635688_c0 % 2**32)
+        rng = jax.random.PRNGKey(0x09_f911029_d74_e35_bd84156_c5635688_c0 % 2**32)
         init_rng, train_rng = jax.random.split(rng)
         params, state = net.init(
             init_rng,
@@ -304,9 +304,7 @@ if __name__ == "__main__":
                     y_batch = y_train[batch_start:batch_end]
                     # print all the types for debug purposes:
 
-                    (loss, (accs, state)), grad = val_and_grad(
-                        compute_loss_fn, has_aux=True
-                    )(params, rng, (x_batch, x_batch_global), y_batch)
+                    (loss, (accs, state)), grad = val_and_grad(params,state, rng, (x_batch, x_batch_global), y_batch)
                     updates, opt_state = opt_update(grad, opt_state)
                     params = optax.apply_updates(params, updates)
 
@@ -316,7 +314,6 @@ if __name__ == "__main__":
 
                     iii += 1
                     if iii % 10 == 0:#adjust per your feelings
-                        print("updated graph", iii, "times")
                         line.set_xdata(np.arange(len(training_res)))
                         line.set_ydata(np.array(training_res))
                         ax.relim()
@@ -337,6 +334,7 @@ if __name__ == "__main__":
 
                     batch_accuracy = compute_accuracy_fn(
                         params,
+                        state,
                         rng,
                         (x_val[start_idx:end_idx], globals_val[start_idx:end_idx]),
                         y_val[start_idx:end_idx],
