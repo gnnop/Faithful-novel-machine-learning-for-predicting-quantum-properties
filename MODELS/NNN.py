@@ -39,8 +39,9 @@ hp = {
     "layer_size": 1000,  # number of perceptrons in a layer. if None provided, automatically determined by the number of inputs
     "batch_size": 1000,  # if None, the size of the dataset
     "dropout_rate": 0.1,
+    "max_epochs": 10000,
     "num_proc": 12,  # this is the number of processes used in preprocessing
-    "atom_bin_sizes": (40, 24, 16, 12, 8, 6),
+    "atom_bin_sizes": (40, 24, 16, 12, 8, 6), #These are the bins for each atomic type
 }
 
 
@@ -53,10 +54,10 @@ def net_fn(batch, is_training=False):
             jax.nn.relu,
             # lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,
             # fully connected layer with dropout
-            # hk.Linear(hp["layer_size"]), jax.nn.relu,
+             hk.Linear(hp["layer_size"]), jax.nn.relu,
             # lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,
             # fully connected layer with dropout
-            # hk.Linear(hp["layer_size"]), jax.nn.relu,
+             hk.Linear(hp["layer_size"]), jax.nn.relu,
             # lambda x: hk.dropout(rng=hk.next_rng_key(), x=x, rate=hp["dropout_rate"]) if is_training else x,
             # # fully connected layer with dropout
             # hk.Linear(output_dim), jax.nn.relu,
@@ -303,17 +304,11 @@ There are {len(global_inputs)}  global inputs,
         batch_memory = hp["batch_size"] * len(X_train[0]) * 4
         print(f"Batch memory: {batch_memory/1e9:.01} GB")
 
-        num_epochs = 5000
         num_batches = X_train.shape[0] // hp["batch_size"]
         ramp_up_epochs = 500  # number of epochs to linearly ramp up the learning rate
         total_ramp_up_steps = ramp_up_epochs * num_batches
-        lr_schedule = optax.linear_schedule(
-            init_value=1e-6, end_value=1e-5, transition_steps=total_ramp_up_steps
-        )
-
-        # optimizer
-        optimizer = optax.noisy_sgd(learning_rate=lr_schedule)
-        opt_state = optimizer.init(params)
+        opt_init, opt_update = optax.adam(3e-4)
+        opt_state = opt_init(params)
 
         compute_loss_fn = jax.jit(
             functools.partial(loss_fn, net, label_types, label_nums)
@@ -327,14 +322,14 @@ There are {len(global_inputs)}  global inputs,
         fig, ax = plt.subplots(figsize=(10, 8))
         line, = ax.plot([1, 2], [1, 2])
         # setting x-axis label and y-axis label
-        plt.xlabel("X-axis")
-        plt.ylabel("Y-axis")
+        plt.xlabel("batches")
+        plt.ylabel("accuracy")
 
         try:
             iii = 0
             training_acc = ExponentialDecayWeighting(0.99)
             training_res = []
-            for epoch in range(num_epochs):
+            for epoch in range(hp["max_epochs"]):
                 train_rng = jax.random.split(train_rng, num=1)[0]
                 shuffled_indices = jax.random.permutation(train_rng, num_batches)
                 for valid_material_id in range(num_batches):
@@ -348,7 +343,7 @@ There are {len(global_inputs)}  global inputs,
                     # print all the types for debug purposes:
 
                     (loss, (accs, state)), grad = val_and_grad(params,state, rng, x_batch, y_batch)
-                    updates, opt_state = optimizer.update(grad, opt_state)
+                    updates, opt_state = opt_update(grad, opt_state)
                     params = optax.apply_updates(params, updates)
                     training_acc.add_accuracy(accs)
                     training_res.append(training_acc.get_weighted_average())
