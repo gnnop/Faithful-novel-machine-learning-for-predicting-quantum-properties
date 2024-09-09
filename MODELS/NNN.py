@@ -1,14 +1,7 @@
-from optax._src.alias import jnp
-from includes import *
-import os
-import shutil
-from tqdm import tqdm
+import sys, os, shutil
 
-# note that jax loads on the first call to a jax function
-# if not __name__ == '__main__':
-#   os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
-
-os.chdir(os.path.dirname(os.path.realpath(__file__)))
+if not __name__ == "__main__":
+    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "False"
 
 # standard thing that makes sure all dependencies resolve.
 
@@ -29,19 +22,22 @@ def copy_file_to_directories(filename, target_dirs):
 
 
 # define the relative paths of the target directories
-target_directories = ["input", "output"]
+target_directories = [".", "input", "output"]
 if __name__ == "__main__":
-    copy_file_to_directories("includes.py", target_directories)
+    copy_file_to_directories("../includes.py", target_directories)
 
+
+# now the rest of the file.
 
 # this is a function in includes.py that loads all the submodules.
+from includes import *
 load_submodules()
 
 
 # hyperparameters
 hp = {
     "layer_size": 1000,  # number of perceptrons in a layer. if None provided, automatically determined by the number of inputs
-    "batch_size": 50,  # if None, the size of the dataset
+    "batch_size": 1000,  # if None, the size of the dataset
     "dropout_rate": 0.1,
     "num_proc": 12,  # this is the number of processes used in preprocessing
     "atom_bin_sizes": (40, 24, 16, 12, 8, 6),
@@ -289,10 +285,10 @@ There are {len(global_inputs)}  global inputs,
 
         # now, attempt to load the model nnn.params if it exists, otherwise init with haiku
         # initialize the network
-        net = hk.transform(net_fn)
+        net = hk.transform_with_state(net_fn)
         rng = jax.random.PRNGKey(0x4_d696361684_d756_e64790_a % 2**32)
         init_rng, train_rng = jax.random.split(rng)
-        params = net.init(init_rng, jnp.array([X_train[0]]), is_training=True)
+        params, state = net.init(init_rng, jnp.array([X_train[0]]), is_training=True)
         if exists("NNN.params"):
             with open("NNN.params", "rb") as f:
                 params = pickle.load(f)
@@ -338,23 +334,22 @@ There are {len(global_inputs)}  global inputs,
             iii = 0
             training_acc = ExponentialDecayWeighting(0.99)
             training_res = []
-            for epoch in tqdm(range(num_epochs)):
+            for epoch in range(num_epochs):
+                train_rng = jax.random.split(train_rng, num=1)[0]
+                shuffled_indices = jax.random.permutation(train_rng, num_batches)
                 for valid_material_id in range(num_batches):
                     batch_rng = jax.random.fold_in(train_rng, valid_material_id)
                     batch_start, batch_end = (
-                        valid_material_id * hp["batch_size"],
-                        (valid_material_id + 1) * hp["batch_size"],
+                        shuffled_indices[valid_material_id] * hp["batch_size"],
+                        (shuffled_indices[valid_material_id] + 1) * hp["batch_size"],
                     )
                     x_batch = X_train[batch_start:batch_end]
                     y_batch = y_train[batch_start:batch_end]
                     # print all the types for debug purposes:
 
-                    (loss, accs), grad = jax.value_and_grad(
-                        compute_loss_fn, has_aux=True
-                    )(params, rng, x_batch, y_batch)
+                    (loss, (accs, state)), grad = val_and_grad(params,state, rng, x_batch, y_batch)
                     updates, opt_state = optimizer.update(grad, opt_state)
                     params = optax.apply_updates(params, updates)
-
                     training_acc.add_accuracy(accs)
                     training_res.append(training_acc.get_weighted_average())
                     iii += 1
@@ -379,7 +374,7 @@ There are {len(global_inputs)}  global inputs,
                     x_batch = X_val[batch_start:batch_end]
                     y_batch = y_val[batch_start:batch_end]
                     # print all the types for debug purposes:
-                    batch_accuracy = compute_accuracy_fn(params, batch_rng, X_val, y_val)
+                    batch_accuracy = compute_accuracy_fn(params,state, batch_rng, X_val, y_val)
                     batch_accuracies.append(batch_accuracy)
                 
                 batch_accuracies = jnp.stack(batch_accuracies)
