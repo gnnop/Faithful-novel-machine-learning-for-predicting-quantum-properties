@@ -306,3 +306,18 @@ def accuracy_fn(net, evaluation_methods, learning_num, params, state, rng, input
     _, (a, _) = loss_fn(net, evaluation_methods, learning_num, params, state, rng, inputs, targets)
     return a
 
+
+#This is a list of identifiers
+def determineNaiveClassification(data):
+    counted = Counter(data).values()
+    return max(counted) / sum(counted)
+
+#The medain optimizes MAE
+def determineNaiveRegressionMAE(data):
+    middle = statistics.median(data)
+    return statistics.mean(map(lambda x: abs(x - middle), data))
+
+#The mean optimizes RMSE
+def determineNaiveRegressionRMSE(data):
+    middle = statistics.mean(data)
+    return math.sqrt(statistics.mean(map(lambda x: (x - middle) ** 2, data)))
