@@ -1,14 +1,3 @@
-# TODO LIST
-
-
-- if a model is run and there's a prediction.csv, the model should write out the material predictions to the csv using the existing param files and then turn off. This allows easy retrieval of practical results
-- there should be a correspondence set up between the paper and the experiments, so you can run a file to get the list of labelled experiments that reproduce results in the paper
-- all hyperparameters must be moved to the top and labeled in the code
-- some experiments need to be listed with justification for why results go one way or another
-- Once this is all done and written up, we're ready for publication
-
-
-
 # Materials Modeling Project
 
 This project provides machine learning methods that are theoretically fully general, capable of modeling any material property desires. It is designed specifically to be simple to use on novel materials problems.
